@@ -1,7 +1,7 @@
 export const SITE = {
   name: "Computer Shop 2026",
   description: "Sklep komputerowy — projekt laboratoryjny z Programowania BackEnd (Next.js, App Router).",
-  author: "Imię Nazwisko",
+  author: "Anastasiia Muzyka",
   course: "Programowanie BackEnd, Katedra Informatyki Stosowanej M-7, Politechnika Krakowska",
 } as const;
 

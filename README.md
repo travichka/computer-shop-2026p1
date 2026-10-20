@@ -1,5 +1,7 @@
 # Computer Shop 2026 — Lab 06
 
+Autorka: Anastasiia Muzyka
+
 Podstawa aplikacji sklepu komputerowego (Programowanie BackEnd, KIS M-7, PK): routing App Router,
 wspólny layout, repozytorium produktów po stronie serwera z walidacją danych, obsługa pustego wyniku,
 nieznanego adresu i awarii oraz trzy rozszerzenia (API, ładowanie, eksperyment z layoutem).
