@@ -8,6 +8,7 @@ export const SITE = {
 export const NAV_LINKS = [
   { href: "/", label: "Start" },
   { href: "/product-list", label: "Katalog" },
+  { href: "/catalog", label: "Kategorie" },
   { href: "/basket", label: "Koszyk" },
   { href: "/order-history", label: "Historia zamówień" },
   { href: "/about", label: "O sklepie" },
