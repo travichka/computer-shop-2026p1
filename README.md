@@ -10,8 +10,8 @@ nieznanego adresu i awarii oraz trzy rozszerzenia (API, ładowanie, eksperyment 
 
 | Narzędzie | Wersja |
 | --- | --- |
-| Node.js | 24 LTS (`.nvmrc`, `engines`) — **lokalnie sprawdzone na 22.20.0**, patrz ograniczenia |
-| npm | 11.6.2 |
+| Node.js | 24.22.1 (24 LTS, `.nvmrc`, `engines`) |
+| npm | 11.19.1 |
 | Next.js | 16.3.8 (Turbopack, konfiguracja domyślna) |
 | React / React DOM | 19.2.8 |
 | TypeScript | 5.9.3 |
@@ -86,9 +86,9 @@ tests/                     testy Vitest
 
 - `data/products.json` generuje `scripts/generate-products.mjs` (PRNG mulberry32, ziarno 2026). Ponowne
   uruchomienie z tym samym ziarnem daje identyczny bajtowo plik (sprawdzone porównaniem skrótów).
-- W danych: wszystkie kategorie (`cpu`, `gpu`, `ram`, `disk`), 23 produkty z `amount = 0` (co najmniej jeden w każdej
-  kategorii), nazwy z polskimi znakami, nazwy pisane w całości wielkimi i małymi literami, dwie identyczne nazwy
-  (`id` 12 i 44) oraz jedna nazwa zapisana w Unicode NFD (`id` 23).
+- W danych: wszystkie kategorie (`cpu`, `gpu`, `ram`, `disk`, po 25), 30 produktów z `amount = 0` (co najmniej jeden
+  w każdej kategorii), nazwy z polskimi znakami, nazwy pisane w całości wielkimi i małymi literami, 7 par
+  identycznych nazw z różnymi `id` (np. 12 i 44, 6 i 98) oraz jedna nazwa zapisana w Unicode NFD (`id` 23).
 - `price` to całkowite grosze; widok formatuje złote przez `Intl.NumberFormat("pl-PL", { currency: "PLN" })`.
 - Walidator (`lib/products/validation.ts`) sprawdza: tablicę na wejściu, brak nieznanych pól, `id` / `price` /
   `amount` przez `Number.isSafeInteger` i zakresy z tabeli, `code` `^[A-Z0-9]{10}$`, unikalność `id` i `code`,
@@ -99,6 +99,7 @@ tests/                     testy Vitest
 - Repozytorium (`ProductRepository`): `getProducts(criteria)` z polami `type`, `stock` (`all` / `available` /
   `unavailable`) i `sort` (`name` / `newest`), `getProductById(id)` → `Product | null`. Pusty wynik to `[]`.
   Awaria źródła odrzuca Promise — repozytorium nie wywołuje `notFound()` i nie zamienia błędu na `null`/`[]`.
+  Import `server-only` sprawdzony: tymczasowy import repozytorium w `DescriptionToggle.tsx` przerywa `next build`.
   Plik jest czytany raz i trzymany w pamięci procesu; nieudany odczyt nie jest cache'owany (retry czyta ponownie).
 - Sortowanie `name`: klucz `name.normalize("NFC").toLowerCase().normalize("NFC")`, porównanie bajtów UTF-8
   przez `Buffer.compare`, remis → `id` rosnąco. `newest`: czas malejąco, remis → `id` rosnąco. Wejście nie jest mutowane.
@@ -120,11 +121,11 @@ i `code`, ujemną cenę, 2147483648 w `id`/`price`/`amount`, niepoprawne daty (3
 strefa inna niż UTC, rok 0000, format akceptowany przez `Date.parse`), U+0000 i samotne surogaty;
 plik `data/products.json` przechodzi walidację i spełnia wymagania zbioru; parametry API.
 
-## Wynik sprawdzeń (2026-10-20)
+## Wynik sprawdzeń (2026-10-26, Node 24.22.1, npm 11.19.1)
 
 | Krok | Wynik |
 | --- | --- |
-| `npm ci` | OK |
+| `npm ci` | OK (po uzupełnieniu `package-lock.json` o brakujące `@emnapi/core` i `@emnapi/runtime` 1.11.3) |
 | `npm run lint` | OK, bez ostrzeżeń |
 | `npm run test` | OK, 3 pliki, 51 testów |
 | `npm run build` | OK; `/product-list` i `/api/products` dynamiczne, pozostałe statyczne |
@@ -231,7 +232,6 @@ CSS Module dla kart produktów.
 
 ## Ograniczenia
 
-- Testy, lint i build uruchomiłem lokalnie na Node 22.20.0, a nie na wymaganym 24 LTS (`.nvmrc` = 24).
 - JSON jest tylko do odczytu i trzymany w pamięci procesu; zmiana pliku wymaga restartu serwera. Brak trwałości
   i spójności między procesami — to zadanie bazy w Lab 08.
 - Katalog renderuje wszystkie 100 produktów bez paginacji; filtry w interfejsie i szczegóły produktu będą w Lab 07.
