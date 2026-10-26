@@ -1,4 +1,60 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400;1,700;1,900&display=swap');
+@import "tailwindcss";
+
+/* Lab 07 extension — Tailwind CSS 4: tokens for the utilities used in the catalog and details. */
+@theme {
+  --color-paper: #f6f6f2;
+  --color-ink: #1d1d2b;
+  --color-focus: #2e3192;
+  --color-ok: #17663f;
+  --color-bad: #a3261c;
+  --color-control: #bcbcb7;
+  --font-heading: "Inter", sans-serif;
+}
+
+/* Preflight resets headings, paragraphs, lists and buttons. Readable defaults are restored in the
+   base layer, so the unlayered course styles below and Tailwind utilities still take precedence. */
+@layer base {
+  h1 {
+    margin: 0.67em 0;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  h2 {
+    margin: 0.83em 0;
+    font-size: 1.4rem;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  p {
+    margin: 1em 0;
+  }
+
+  a {
+    text-decoration: underline;
+  }
+
+  main a {
+    color: #fdfdf8;
+  }
+
+  :focus-visible {
+    outline: 3px solid #fdfdf8;
+    outline-offset: 2px;
+  }
+
+  button {
+    padding: 0.25rem 0.6rem;
+    border: 2px solid #181817;
+    border-radius: 4px;
+    background-color: var(--color-control);
+    color: #181817;
+    cursor: pointer;
+  }
+}
 
 * {
   box-sizing: border-box;
@@ -113,3 +169,99 @@ ul {
 }
 
 .logo { width: 200px; height: 200px; }
+/* ---- Lab 07: navigation, focus, catalog section ---- */
+
+#main-header ul {
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+/* Current page / section is marked without hover: background plus underline. */
+#main-header ul a[aria-current] {
+  text-decoration: underline;
+  text-underline-offset: 0.3em;
+}
+
+
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -10rem;
+  padding: 0.5rem 1rem;
+  background-color: #181817;
+  color: #fdfdf8;
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
+
+.breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.breadcrumbs li + li::before {
+  content: "›";
+  margin-right: 0.5rem;
+}
+
+.catalog-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 15rem;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 50rem) {
+  .catalog-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.notice {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border-left: 4px solid #f5c542;
+  background-color: #2e2e5c;
+  list-style: none;
+}
+
+.bullets {
+  list-style: disc;
+  padding-left: 1.5rem;
+}
+
+.bullets li {
+  margin: 0.3rem 0;
+}
+
+.image-page img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.featured-error {
+  padding: 1rem;
+  border-radius: 8px;
+  background-color: #2e2e5c;
+}
+
+@media (max-width: 40rem) {
+  #main-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+}
+
+/* Preflight makes images block-level; keep the home logo centred. */
+#home img {
+  margin: 0 auto;
+}

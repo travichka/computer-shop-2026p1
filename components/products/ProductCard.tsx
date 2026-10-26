@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import { formatPrice } from "@/lib/format";
 import { PRODUCT_TYPE_LABELS, type Product } from "@/lib/products/types";
 import DescriptionToggle from "./DescriptionToggle";
@@ -10,10 +11,19 @@ export default function ProductCard({ product }: { product: Product }) {
 
   return (
     <article className={styles.card} aria-labelledby={`product-${product.id}`}>
-      <Image src={product.image} alt={`Ilustracja kategorii: ${category}`} width={96} height={96} className={styles.image} />
+      {/* Client navigation to /product-list/<id>/image is intercepted by the @modal slot. */}
+      <Link href={`/product-list/${product.id}/image`} className={styles.imageLink} scroll={false}>
+        <Image
+          src={product.image}
+          alt={`Powiększ ilustrację: ${product.name}`}
+          width={96}
+          height={96}
+          className={styles.image}
+        />
+      </Link>
       <div className={styles.body}>
         <h2 id={`product-${product.id}`} className={styles.name}>
-          {product.name}
+          <Link href={`/product-list/${product.id}`}>{product.name}</Link>
         </h2>
         <dl className={styles.meta}>
           <div>

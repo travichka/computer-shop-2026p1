@@ -104,3 +104,111 @@
     flex-direction: column;
   }
 }
+
+/* ---- Lab 07 ---- */
+
+.card a {
+  color: #1d1d2b;
+}
+
+.imageLink {
+  flex: none;
+  align-self: flex-start;
+  border-radius: 6px;
+}
+
+.empty a {
+  color: #1d1d2b;
+  font-weight: 700;
+}
+
+.modalActions button {
+  font: inherit;
+  padding: 0.35rem 0.6rem;
+  border: 2px solid #181817;
+  border-radius: 4px;
+  background-color: #bcbcb7;
+  color: #181817;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.modal :focus-visible {
+  outline: 3px solid #2e3192;
+  outline-offset: 2px;
+}
+
+.featured {
+  padding: 1rem;
+  border-radius: 8px;
+  background-color: #f6f6f2;
+  color: #1d1d2b;
+}
+
+.featured h2 {
+  margin: 0;
+  font-family: "Inter", sans-serif;
+  font-size: 1.1rem;
+}
+
+.featuredNote {
+  margin: 0.25rem 0 0.75rem;
+  font-size: 0.85rem;
+}
+
+.featured ol {
+  margin: 0;
+  list-style: decimal;
+  padding-left: 1.25rem;
+}
+
+.featured li {
+  margin-bottom: 0.6rem;
+}
+
+.featured a {
+  display: block;
+  color: #1d1d2b;
+}
+
+.featured :focus-visible {
+  outline: 3px solid #2e3192;
+  outline-offset: 2px;
+}
+
+.modal {
+  max-width: min(32rem, 92vw);
+  padding: 1.5rem;
+  border: none;
+  border-radius: 8px;
+  background-color: #f6f6f2;
+  color: #1d1d2b;
+}
+
+.modal::backdrop {
+  background-color: rgb(0 0 0 / 0.6);
+}
+
+.modal h2 {
+  margin-top: 0;
+  font-family: "Inter", sans-serif;
+  font-size: 1.1rem;
+}
+
+.modal img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.modalActions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.modalActions a {
+  color: #1d1d2b;
+}

@@ -1,22 +1,9 @@
 "use client"; // Error boundaries must be Client Components
 
-import { useEffect } from "react";
+import DataErrorView from "@/components/DataErrorView";
 
-export default function CatalogError({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
-  useEffect(() => {
-    // In production the message of a server error is replaced by a generic one;
-    // the digest lets us match this report with the server log.
-    console.error(error);
-  }, [error]);
-
-  return (
-    <section className="content error" role="alert" aria-labelledby="catalog-error-title">
-      <h1 id="catalog-error-title">Nie udało się wczytać katalogu</h1>
-      <p>Wystąpił nieoczekiwany problem po stronie serwera. Spróbuj ponownie za chwilę.</p>
-      {error.digest && <p className="muted">Kod zgłoszenia: {error.digest}</p>}
-      <button type="button" onClick={() => retry()}>
-        Spróbuj ponownie
-      </button>
-    </section>
-  );
+// Catches failures of the catalog page and of nested segments (product details, image page).
+// retry() (stable since Next.js 16.3) re-fetches and re-renders the segment.
+export default function CatalogError(props: { error: Error & { digest?: string }; retry: () => void }) {
+  return <DataErrorView {...props} />;
 }
