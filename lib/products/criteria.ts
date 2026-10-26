@@ -31,9 +31,10 @@ export function parseProductCriteria(params: URLSearchParams): CriteriaParseResu
   }
 
   const type = params.get("type");
-  if (type !== null) {
+  // "all" (as in the catalog URL contract) means no category restriction.
+  if (type !== null && type !== "all") {
     if ((PRODUCT_TYPES as readonly string[]).includes(type)) criteria.type = type as ProductType;
-    else errors.push(`Invalid "type": expected one of ${PRODUCT_TYPES.join(", ")}.`);
+    else errors.push(`Invalid "type": expected all or one of ${PRODUCT_TYPES.join(", ")}.`);
   }
 
   const stock = params.get("stock");

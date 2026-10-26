@@ -84,6 +84,18 @@ describe("queryProducts — filters", () => {
     expect(ids(queryProducts(products, { type: "cpu", stock: "available" }))).toEqual([3]);
   });
 
+  it("combines category, stock and sort without mutating the input", () => {
+    const dated = [
+      makeProduct({ id: 11, type: "gpu", amount: 2, date: "2026-01-01T00:00:00.000Z" }),
+      makeProduct({ id: 12, type: "gpu", amount: 0, date: "2026-09-01T00:00:00.000Z" }),
+      makeProduct({ id: 13, type: "gpu", amount: 5, date: "2026-06-01T00:00:00.000Z" }),
+      makeProduct({ id: 14, type: "cpu", amount: 5, date: "2026-12-01T00:00:00.000Z" }),
+    ];
+    const snapshot = structuredClone(dated);
+    expect(ids(queryProducts(dated, { type: "gpu", stock: "available", sort: "newest" }))).toEqual([13, 11]);
+    expect(dated).toEqual(snapshot);
+  });
+
   it("returns an empty array when nothing matches", () => {
     expect(queryProducts(products, { type: "disk" })).toEqual([]);
     expect(queryProducts([], {})).toEqual([]);

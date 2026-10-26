@@ -15,6 +15,10 @@ describe("parseProductCriteria", () => {
     });
   });
 
+  it("accepts type=all as no category restriction", () => {
+    expect(parse("type=all&sort=name")).toEqual({ ok: true, criteria: { sort: "name" } });
+  });
+
   it.each(["type=psu", "stock=yes", "sort=price", "type=", "TYPE=cpu", "type=cpu&type=gpu", "type=CPU"])(
     "rejects %s",
     (query) => {

@@ -2,7 +2,7 @@ import { parseProductCriteria } from "@/lib/products/criteria";
 import { productRepository } from "@/lib/products/repository";
 
 /**
- * GET /api/products?type=cpu|gpu|ram|disk&stock=all|available|unavailable&sort=name|newest
+ * GET /api/products?type=all|cpu|gpu|ram|disk&stock=all|available|unavailable&sort=name|newest
  * 200 → Product[] (possibly []), 400 → invalid parameters, 500 → repository failure.
  * Uses the same repository as the catalog page; the page never calls this endpoint over HTTP.
  */
