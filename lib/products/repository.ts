@@ -1,36 +1,22 @@
 import "server-only";
 
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { createProductRepository } from "./create-repository";
-import type { Product } from "./types";
-import { validateProducts } from "./validation";
+import { getPrisma } from "@/lib/db";
+import { createPrismaProductRepository } from "./prisma-repository";
+import type { ProductRepository } from "./types";
 
-const DATA_FILE = path.join(process.cwd(), "data", "products.json");
+// Lab 08: the shop reads PostgreSQL through Prisma. data/products.json is only the import source of
+// the seed and of tests — there is no silent fallback to the file when the database is down.
+const databaseRepository = createPrismaProductRepository(getPrisma);
 
 // Optional artificial latency (ms) for the loading experiment, e.g. PRODUCT_REPOSITORY_DELAY_MS=1500.
 const DELAY_MS = Math.max(0, Number(process.env.PRODUCT_REPOSITORY_DELAY_MS) || 0);
+const delay = () => new Promise((resolve) => setTimeout(resolve, DELAY_MS));
 
-let cache: Promise<readonly Product[]> | null = null;
-
-async function readProductsFile(): Promise<readonly Product[]> {
-  const text = await readFile(DATA_FILE, "utf8");
-  return validateProducts(JSON.parse(text));
-}
-
-function loadProducts(): Promise<readonly Product[]> {
-  if (!cache) {
-    const pending = readProductsFile();
-    cache = pending;
-    // Do not cache a failure: a later retry() reads the file again.
-    pending.catch(() => {
-      if (cache === pending) cache = null;
-    });
-  }
-  if (DELAY_MS === 0) return cache;
-  const data = cache;
-  return new Promise((resolve) => setTimeout(resolve, DELAY_MS)).then(() => data);
-}
-
-/** Server-side product repository backed by data/products.json (read-only). */
-export const productRepository = createProductRepository(loadProducts);
+/** Server-side product repository used by pages, generateMetadata and the API route. */
+export const productRepository: ProductRepository =
+  DELAY_MS === 0
+    ? databaseRepository
+    : {
+        getProducts: (criteria) => delay().then(() => databaseRepository.getProducts(criteria)),
+        getProductById: (id) => delay().then(() => databaseRepository.getProductById(id)),
+      };

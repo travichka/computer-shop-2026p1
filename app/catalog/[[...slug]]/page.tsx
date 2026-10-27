@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 import ProductDetails from "@/components/products/ProductDetails";
 import { formatPrice } from "@/lib/format";
 import { parseCatalogSlug } from "@/lib/products/catalog-slug";
@@ -21,6 +22,7 @@ export async function generateMetadata({ params }: PageProps<"/catalog/[[...slug
 }
 
 export default async function CatalogSectionPage({ params }: PageProps<"/catalog/[[...slug]]">) {
+  await connection();
   const parsed = parseCatalogSlug((await params).slug);
   if (parsed === null) notFound();
 

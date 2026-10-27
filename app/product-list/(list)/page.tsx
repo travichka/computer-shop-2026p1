@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import CatalogFilters from "@/components/products/CatalogFilters";
 import ProductList from "@/components/products/ProductList";
 import { DEFAULT_CATALOG_SETTINGS, parseCatalogSearchParams, type CatalogParam } from "@/lib/products/catalog-params";
@@ -16,9 +17,10 @@ const DEFAULT_LABELS: Record<CatalogParam, string> = {
 // Server Component: the URL is parsed and the repository runs only on the server; the browser
 // receives rendered HTML plus the props of the small client components.
 // The (list) route group does not change the URL; it only scopes loading.tsx to this page.
-// Awaiting searchParams makes the page render per request, so a repository failure is handled
-// by error.tsx at request time instead of failing the static prerender during `next build`.
+// Lab 08: connection() — the catalog reads the current database state on every request; a database
+// failure is handled by error.tsx at request time (never an empty list or a build-time prerender).
 export default async function ProductListPage({ searchParams }: PageProps<"/product-list">) {
+  await connection();
   const { settings, criteria, invalid } = parseCatalogSearchParams(await searchParams);
   const products = await productRepository.getProducts(criteria);
 

@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 import ImageModal from "@/components/products/ImageModal";
 import { getProductForRoute } from "@/lib/products/product-page";
 
@@ -7,6 +8,7 @@ import { getProductForRoute } from "@/lib/products/product-page";
 // (the @modal slot is skipped when counting levels). Used only for client navigation inside the
 // catalog section; direct entry and refresh render app/product-list/[id]/image/page.tsx.
 export default async function ImageModalPage({ params }: PageProps<"/product-list/[id]/image">) {
+  await connection();
   const product = await getProductForRoute((await params).id);
   if (!product) notFound();
 

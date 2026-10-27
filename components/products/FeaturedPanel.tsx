@@ -1,11 +1,14 @@
 import Link from "next/link";
+import { connection } from "next/server";
 import { formatPrice } from "@/lib/format";
 import { getFeaturedProducts } from "@/lib/products/featured";
 import { productRepository } from "@/lib/products/repository";
 import styles from "./products.module.css";
 
-// Server component rendered in the @featured slot; reads the same repository as the catalog.
+// Server component rendered in the @featured slot; reads the same repository as the catalog,
+// at request time like the pages around it.
 export default async function FeaturedPanel() {
+  await connection();
   const featured = await getFeaturedProducts(productRepository);
 
   return (
