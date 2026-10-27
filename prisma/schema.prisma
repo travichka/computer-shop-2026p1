@@ -1,0 +1,141 @@
+// Catalog of the computer shop. Constraints that Prisma cannot declare (CHECK, COLLATE "C")
+// live in the SQL of the migrations in prisma/migrations.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Product category with a stable code used in URLs (?type=gpu) — cpu, gpu, ram, disk.
+model Category {
+  id       Int       @id @default(autoincrement())
+  code     String    @unique
+  name     String
+  products Product[]
+}
+
+model Product {
+  /// Explicit id kept from data/products.json (existing URLs /product-list/<id>); no autoincrement.
+  id          Int      @id
+  /// 10 uppercase ASCII letters or digits (CHECK in SQL).
+  code        String   @unique @db.VarChar(10)
+  /// Original name for display.
+  name        String
+  /// name.normalize("NFC").toLowerCase().normalize("NFC") — compared with COLLATE "C" (SQL).
+  nameSortKey String   @db.Text
+  description String
+  /// Local URL of a file in public/, e.g. /images/products/cpu.webp.
+  image       String
+  /// Whole grosze, 0..2147483647 (int4 + CHECK >= 0).
+  price       Int
+  /// Units in stock, 0..2147483647 (int4 + CHECK >= 0).
+  amount      Int
+  /// Source UTC timestamp with milliseconds; sort key for "newest".
+  date        DateTime @db.Timestamptz(3)
+  categoryId  Int
+  /// Restrict: a category with products cannot be deleted.
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+
+  /// Catalog filter by category (?type=…) and the foreign-key check when a category is deleted.
+  @@index([categoryId])
+}
+
+// ---------------------------------------------------------------------------
+// Extension "Model koszyka" — prepared for Lab 09; no public user operations yet.
+// ---------------------------------------------------------------------------
+
+/// Core user table compatible with Better Auth (string id, unique email, emailVerified, optional
+/// image, timestamps). No password column: Better Auth keeps credentials in Account (Lab 09).
+model User {
+  id            String   @id
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+  cart          Cart?
+  orders        Order[]
+}
+
+/// At most one cart per user (unique userId). Deleting the user deletes the cart.
+model Cart {
+  id        Int        @id @default(autoincrement())
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @default(now()) @updatedAt
+  items     CartItem[]
+}
+
+/// One row per product in a cart; quantity 1..99 (CHECK in SQL).
+model CartItem {
+  id        Int     @id @default(autoincrement())
+  cartId    Int
+  /// Cascade: deleting a cart deletes its items.
+  cart      Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId Int
+  /// Cascade: a product that no longer exists disappears from carts (a cart is not history).
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int
+
+  /// The same product cannot appear twice in one cart; also serves lookups by cartId.
+  @@unique([cartId, productId])
+  /// Foreign-key lookups when a product is deleted.
+  @@index([productId])
+}
+
+// ---------------------------------------------------------------------------
+// Extension "Historia zamówień"
+// ---------------------------------------------------------------------------
+
+enum OrderStatus {
+  PENDING
+  PAID
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+model Order {
+  id       Int         @id @default(autoincrement())
+  /// Public order number, e.g. ZAM-2026-0001 (CHECK format in SQL).
+  number   String      @unique
+  status   OrderStatus @default(PENDING)
+  userId   String
+  /// Restrict: a user with order history cannot be deleted.
+  user     User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  /// Sum of line totals in grosze; int8 covers many items at the maximum unit price.
+  total    BigInt
+  placedAt DateTime    @db.Timestamptz(3)
+  items    OrderItem[]
+
+  /// Order history of one user, newest first.
+  @@index([userId, placedAt])
+}
+
+/// Line of an order with a snapshot of the product at purchase time. The optional relation uses
+/// SetNull, so deleting a product keeps the line (code, name and prices stay in the snapshot).
+model OrderItem {
+  id          Int      @id @default(autoincrement())
+  orderId     Int
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   Int?
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productCode String   @db.VarChar(10)
+  productName String
+  /// Unit price in grosze at purchase time (int4 like Product.price).
+  unitPrice   Int
+  quantity    Int
+  /// unitPrice × quantity in grosze (int8; CHECK in SQL keeps it consistent).
+  lineTotal   BigInt
+
+  @@index([orderId])
+  @@index([productId])
+}
