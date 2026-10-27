@@ -9,10 +9,23 @@
     "lint": "eslint",
     "test": "vitest run",
     "generate:data": "node scripts/generate-products.mjs",
-    "generate:images": "node scripts/generate-images.mjs"
+    "generate:images": "node scripts/generate-images.mjs",
+    "prisma:generate": "prisma generate",
+    "db:up": "docker compose up -d --wait",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "db:set-amount": "tsx scripts/set-amount.ts",
+    "db:explain": "tsx scripts/explain-catalog.ts",
+    "db:race": "tsx scripts/reserve-race.ts",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "dotenv": "18.0.9",
     "next": "16.3.8",
+    "pg": "8.23.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1"
@@ -20,12 +33,15 @@
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "^24.19.2",
+    "@types/pg": "8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
     "postcss": "8.5.32",
+    "prisma": "7.10.1",
     "tailwindcss": "4.3.3",
+    "tsx": "4.23.15",
     "typescript": "^5",
     "vitest": "^5.0.5"
   },
@@ -35,5 +51,6 @@
   "allowScripts": {
     "fsevents@2.3.3": true,
     "unrs-resolver@1.12.2": true
-  }
+  },
+  "type": "module"
 }
