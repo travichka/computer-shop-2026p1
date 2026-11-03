@@ -1,8 +1,16 @@
 const priceFormat = new Intl.NumberFormat("pl-PL", { style: "currency", currency: "PLN" });
 
-/** Formats an integer amount of grosze as złoty, e.g. 129999 → "1299,99 zł". */
-export function formatPrice(grosze: number): string {
-  return priceFormat.format(grosze / 100);
+const HUNDRED = BigInt(100);
+
+/**
+ * Formats an integer amount of grosze as złoty, e.g. 129999 → "1299,99 zł". A bigint (cart and
+ * order totals) is passed to Intl as an exact decimal string, so no precision is lost beyond 2^53.
+ */
+export function formatPrice(grosze: number | bigint): string {
+  if (typeof grosze === "number") return priceFormat.format(grosze / 100);
+  const sign = grosze < 0 ? "-" : "";
+  const abs = grosze < 0 ? -grosze : grosze;
+  return priceFormat.format(`${sign}${abs / HUNDRED}.${String(abs % HUNDRED).padStart(2, "0")}` as `${number}`);
 }
 
 // Dates are stored in UTC; formatting in UTC keeps server HTML independent of the server's time zone.
