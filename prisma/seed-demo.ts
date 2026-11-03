@@ -11,6 +11,17 @@ export const DEMO_USER = {
   image: null,
 } as const;
 
+/** Second fictional account (Lab 09 "Historia użytkownika"): its orders must never be shown to A. */
+export const DEMO_USER_B = {
+  id: "demo-user-b",
+  name: "Konto demonstracyjne B",
+  email: "demo-b@computer-shop.test",
+  emailVerified: false,
+  image: null,
+} as const;
+
+export const DEMO_USERS = [DEMO_USER, DEMO_USER_B] as const;
+
 export const DEMO_CART_ITEMS = [
   { productId: 1, quantity: 1 },
   { productId: 18, quantity: 2 },
@@ -18,17 +29,21 @@ export const DEMO_CART_ITEMS = [
 
 interface DemoOrder {
   number: string;
+  /** Fictional owner; scripts/link-demo-orders.ts can move the orders to a real auth account. */
+  userId: string;
   status: OrderStatus;
   placedAt: string;
   items: ReadonlyArray<{ productId: number; quantity: number }>;
 }
 
-/** Four deterministic orders (fixed numbers, dates, products and quantities). */
+/** Six deterministic orders of two fictional users (fixed numbers, dates, products and quantities). */
 export const DEMO_ORDERS: readonly DemoOrder[] = [
-  { number: "ZAM-2026-0001", status: "DELIVERED", placedAt: "2026-09-01T10:00:00.000Z", items: [{ productId: 13, quantity: 1 }, { productId: 30, quantity: 2 }] },
-  { number: "ZAM-2026-0002", status: "SHIPPED", placedAt: "2026-09-15T12:30:00.000Z", items: [{ productId: 51, quantity: 1 }] },
-  { number: "ZAM-2026-0003", status: "PAID", placedAt: "2026-10-01T08:15:00.000Z", items: [{ productId: 94, quantity: 1 }, { productId: 2, quantity: 1 }] },
-  { number: "ZAM-2026-0004", status: "CANCELLED", placedAt: "2026-10-20T16:45:00.000Z", items: [{ productId: 77, quantity: 3 }] },
+  { number: "ZAM-2026-0001", userId: DEMO_USER.id, status: "DELIVERED", placedAt: "2026-09-01T10:00:00.000Z", items: [{ productId: 13, quantity: 1 }, { productId: 30, quantity: 2 }] },
+  { number: "ZAM-2026-0002", userId: DEMO_USER.id, status: "SHIPPED", placedAt: "2026-09-15T12:30:00.000Z", items: [{ productId: 51, quantity: 1 }] },
+  { number: "ZAM-2026-0003", userId: DEMO_USER.id, status: "PAID", placedAt: "2026-10-01T08:15:00.000Z", items: [{ productId: 94, quantity: 1 }, { productId: 2, quantity: 1 }] },
+  { number: "ZAM-2026-0004", userId: DEMO_USER.id, status: "CANCELLED", placedAt: "2026-10-20T16:45:00.000Z", items: [{ productId: 77, quantity: 3 }] },
+  { number: "ZAM-2026-0005", userId: DEMO_USER_B.id, status: "DELIVERED", placedAt: "2026-10-05T09:00:00.000Z", items: [{ productId: 40, quantity: 1 }] },
+  { number: "ZAM-2026-0006", userId: DEMO_USER_B.id, status: "PAID", placedAt: "2026-10-25T14:20:00.000Z", items: [{ productId: 60, quantity: 2 }, { productId: 3, quantity: 1 }] },
 ];
 
 interface ProductSnapshotSource {
@@ -69,15 +84,19 @@ export interface DemoSeedSummary {
 }
 
 /**
- * Upserts the demo user and cart (listed cart items get their quantity reset). Orders are created
+ * Upserts the demo users and the cart of DEMO_USER (listed cart items get their quantity reset). Orders are created
  * only when their number does not exist yet: history is never rewritten, so a later price change
  * or a second seed does not touch existing snapshots. One transaction for all of it.
  */
 export async function seedDemoData(client: PrismaClient): Promise<DemoSeedSummary> {
   return client.$transaction(
     async (tx) => {
-      const { id: userId, ...profile } = DEMO_USER;
-      await tx.user.upsert({ where: { id: userId }, create: DEMO_USER, update: profile });
+      // Only the fictional accounts are touched: users and sessions created by logging in stay.
+      for (const user of DEMO_USERS) {
+        const { id, ...profile } = user;
+        await tx.user.upsert({ where: { id }, create: user, update: profile });
+      }
+      const userId = DEMO_USER.id;
 
       const cart = await tx.cart.upsert({ where: { userId }, create: { userId }, update: {}, select: { id: true } });
       for (const item of DEMO_CART_ITEMS) {
@@ -101,7 +120,7 @@ export async function seedDemoData(client: PrismaClient): Promise<DemoSeedSummar
           data: {
             number: order.number,
             status: order.status,
-            userId,
+            userId: order.userId,
             placedAt: new Date(order.placedAt),
             total,
             items: { create: lines },

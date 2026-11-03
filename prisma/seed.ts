@@ -4,7 +4,7 @@ import { config } from "dotenv";
 import { readFile } from "node:fs/promises";
 import { createPrismaClient } from "@/lib/prisma-client";
 import { seedCatalog } from "./seed-catalog";
-import { DEMO_USER, seedDemoData } from "./seed-demo";
+import { DEMO_USERS, seedDemoData } from "./seed-demo";
 
 config({ quiet: true });
 
@@ -16,7 +16,7 @@ try {
   console.log(`Seed OK: ${catalog.categories} categories, ${catalog.products} products.`);
   const demo = await seedDemoData(client);
   console.log(
-    `Demo data OK: user ${DEMO_USER.email}, ${demo.cartItems} cart items, ` +
+    `Demo data OK: users ${DEMO_USERS.map((user) => user.email).join(", ")}, ${demo.cartItems} cart items, ` +
       `${demo.orders} orders (${demo.ordersCreated} created now, existing history kept).`,
   );
 } catch (error) {

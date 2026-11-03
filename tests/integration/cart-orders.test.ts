@@ -60,9 +60,9 @@ describe("extension: cart model", () => {
 });
 
 describe("extension: order history", () => {
-  it("seeds four deterministic orders with exact totals in grosze", async () => {
+  it("seeds six deterministic orders of two users with exact totals in grosze", async () => {
     const orders = await client.order.findMany({ orderBy: { number: "asc" }, include: { items: { orderBy: { id: "asc" } } } });
-    expect(orders.map((o) => [o.number, o.status])).toEqual(DEMO_ORDERS.map((o) => [o.number, o.status]));
+    expect(orders.map((o) => [o.number, o.status, o.userId])).toEqual(DEMO_ORDERS.map((o) => [o.number, o.status, o.userId]));
     for (const order of orders) {
       const sum = order.items.reduce((total, item) => total + item.lineTotal, BigInt(0));
       expect(order.total).toBe(sum);
@@ -84,7 +84,7 @@ describe("extension: order history", () => {
     const item = await client.orderItem.findFirstOrThrow({ where: { order: { number: "ZAM-2026-0003" }, productName: { not: "" } }, orderBy: { id: "asc" } });
     expect(item.productId).toBeNull();
     expect(item.productCode).toMatch(/^[A-Z0-9]{10}$/);
-    expect(await client.order.count()).toBe(4);
+    expect(await client.order.count()).toBe(DEMO_ORDERS.length);
   });
 
   it("blocks deleting a user who has orders", async () => {
