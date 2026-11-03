@@ -76,3 +76,6 @@ export function cartError(error: CartErrorCode): Extract<CartResult, { ok: false
   const field = ERROR_FIELDS[error];
   return { ok: false, error, message: CART_ERROR_MESSAGES[error], ...(field ? { field } : {}) };
 }
+
+/** State of a cart form driven by useActionState: null before the first submit. */
+export type CartActionState = CartResult | null;
