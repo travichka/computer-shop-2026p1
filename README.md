@@ -1,6 +1,386 @@
-# Computer Shop 2026 — Lab 08
+# Computer Shop 2026 — Lab 09
 
 Autorka: Anastasiia Muzyka
+
+Sklep komputerowy (Programowanie BackEnd, KIS M-7, PK). Lab 06–07 dały katalog, routing i filtry w adresie,
+Lab 08 — PostgreSQL 17 + Prisma 7. **Lab 09 dodaje logowanie GitHub OAuth (Better Auth 1.7.7), sesje
+w PostgreSQL i własny koszyk użytkownika** z kontrolą właściciela po stronie serwera, atomowym `addProduct`
+i testami A/B. Rozszerzenia: **historia użytkownika**, **sesje na wielu urządzeniach**, **zapis współbieżny**
+(checkout transakcyjny — niewykonany, zob. Ograniczenia).
+
+## Lab 09 — wersje
+
+| Element | Wersja |
+| --- | --- |
+| Node.js / npm | 24.22.1 / 11.19.1 |
+| Next.js / React | 16.3.8 / 19.2.8 |
+| Prisma (`prisma`, `@prisma/client`, `@prisma/adapter-pg`) | 7.10.1 |
+| PostgreSQL | 17.11 (`postgres:17`) |
+| `better-auth` | **1.7.7** (`--save-exact`) |
+| `@better-auth/prisma-adapter` | **1.7.14** (`--save-exact`, zgodnie z Listing 2.1; ciągnie własne `@better-auth/core@1.7.15`, typy zgodne — `tsc` bez błędów) |
+| `auth` (CLI Better Auth, devDependency) | **1.7.7** (`--save-exact`), uruchamiane przez `npx --no-install auth` |
+
+`npm ls better-auth @better-auth/prisma-adapter auth --depth=0` → `better-auth@1.7.7`,
+`@better-auth/prisma-adapter@1.7.14`, `auth@1.7.7`. Lockfile zachowany i zatwierdzony. Bez Auth.js.
+
+## Lab 09 — uruchomienie od zera
+
+```bash
+cp .env.example .env                      # hasło bazy + zmienne auth (poniżej)
+openssl rand -base64 32                   # wynik → BETTER_AUTH_SECRET w .env
+npm ci
+npm run db:up
+npx --no-install prisma migrate deploy    # 4 migracje, w tym …_auth_cart
+npx --no-install prisma generate
+npx --no-install prisma db seed           # katalog + fikcyjne konta demo (nie rusza kont z logowania)
+npm run lint && npm run test && npm run build
+npm run start                             # http://localhost:3000
+```
+
+### GitHub OAuth App (callback)
+
+GitHub → Settings → Developer settings → **OAuth Apps** → New OAuth App (to nie jest GitHub App):
+
+| Pole | Wartość lokalna |
+| --- | --- |
+| Homepage URL | `http://localhost:3000` |
+| Authorization callback URL | `http://localhost:3000/api/auth/callback/github` |
+
+Client ID → `GITHUB_CLIENT_ID`, wygenerowany Client secret → `GITHUB_CLIENT_SECRET`. Przy zmianie portu lub
+ścieżki auth trzeba zmienić oba adresy i `BETTER_AUTH_URL`. Adres wdrożenia — Lab 10.
+
+Zakresy: `disableDefaultScope: true` + `scope: ["read:user", "user:email"]` (zob. `lib/auth-options.ts`) —
+profil i e-mail, **bez `repo`**. Zweryfikowane na starcie OAuth: `scope=read:user user:email`,
+`redirect_uri=http://localhost:3000/api/auth/callback/github`, losowy `state` i PKCE (`code_challenge_method=S256`).
+Błąd braku e-maila (`?error=email_not_found` na `/login`): sprawdzić, czy aplikacja jest typu OAuth App (zakres
+`user:email` wystarcza także dla prywatnego adresu); GitHub App wymaga osobnego uprawnienia „Email addresses: Read”.
+
+### Zmienne środowiskowe auth
+
+| Zmienna | Znaczenie |
+| --- | --- |
+| `BETTER_AUTH_SECRET` | losowy sekret (≥ 32 znaki; `openssl rand -base64 32` → 44) — podpis cookies, szyfrowanie tokenów OAuth |
+| `BETTER_AUTH_URL` | bazowy URL, lokalnie `http://localhost:3000` (zaufane pochodzenie i `redirect_uri`) |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | dane OAuth App, wyłącznie serwer |
+| `DATABASE_URL` | baza z Lab 08 (bez zmian) |
+
+Żadna nie ma prefiksu `NEXT_PUBLIC_`. `readAuthEnv()` (`lib/auth-options.ts`) sprawdza obecność, niepustość,
+długość sekretu i poprawność URL **przy konfiguracji** i rzuca błąd z nazwą brakującej zmiennej — bez
+`process.env.X as string`. W repozytorium jest tylko `.env.example` z wartościami zastępczymi.
+
+## Lab 09 — integracja Better Auth
+
+| Plik | Rola |
+| --- | --- |
+| `lib/auth-options.ts` | wspólne ustawienia (bez adaptera, bez `server-only`): sekret, `baseURL`, `socialProviders.github`, `session.cookieCache.enabled: false`, `account.encryptOAuthTokens: true` |
+| `lib/auth.ts` | instancja runtime (`server-only`): `betterAuth({ ...shared, database: prismaAdapter(getPrisma(), { provider: "postgresql" }) })` — **ten sam klient PrismaPg z `lib/db.ts`**, bez drugiego klienta |
+| `auth.ts` (katalog główny) | konfiguracja wyłącznie dla CLI: `import "dotenv/config"`, `betterAuth(shared)` bez adaptera aplikacji i bez `server-only` |
+| `app/api/auth/[...all]/route.ts` | `toNextJsHandler(auth)` (Listing 4.1) |
+| `lib/session.ts` | `getCurrentSession()` = `auth.api.getSession({ headers: await headers() })` — wywoływane w trakcie żądania (Listing 6.1) |
+| `lib/auth-client.ts` | `createAuthClient()` z `better-auth/react`; `signIn.social({ provider: "github" })`, `signOut()` |
+| `lib/return-path.ts` | powrót po logowaniu tylko na znane ścieżki (`/basket`, `/order-history`, …); inne → `/basket` |
+
+Zabezpieczenia biblioteki zostają włączone: `state` + PKCE, sprawdzanie pochodzenia (`disableCSRFCheck` /
+`disableOriginCheck` nieustawione), cookies `HttpOnly`, `SameSite=Lax`, podpisane sekretem (`Secure` przy HTTPS),
+rate limiting w produkcji. Sprawdzone `curl` na `npm run start`: `POST /api/auth/sign-out` z cookie
+i `Origin: https://evil.example` → `403 INVALID_ORIGIN`; `callbackURL: "https://evil.example"` →
+`INVALID_CALLBACK_URL`; seria szybkich `sign-in` → „Too many requests”.
+
+Po `signOut()` klient wywołuje `router.refresh()`, a logowanie kończy się pełnym przekierowaniem, więc
+nawigacja (`UserMenu` — komponent serwerowy czytający sesję żądania) i widoki chronione zawsze pokazują stan
+sesji serwera. Do przeglądarki trafia tylko nazwa użytkownika — bez tokenu sesji, tokenów OAuth i rekordów auth
+(nie używam `useSession`, bo `get-session` zwraca w JSON także token sesji).
+
+### Generowanie modeli i migracja
+
+```bash
+npx --no-install auth generate --config ./auth.ts --adapter prisma --dialect postgresql --output auth.prisma
+# porównanie z prisma/schema.prisma, scalenie, usunięcie auth.prisma (jest też w .gitignore)
+npx --no-install prisma validate
+npx --no-install prisma migrate dev --create-only --name auth_cart
+# przegląd SQL + dopisany blok sprawdzający CHECK ilości
+npx --no-install prisma migrate dev
+npx --no-install prisma generate
+```
+
+Decyzje przy scalaniu (`prisma/schema.prisma`):
+
+- **Jeden model `User`** — z Lab 08 był już zgodny z Better Auth (string `id`, unikalny `email`,
+  `emailVerified`, `image`, znaczniki czasu). Doszły relacje `sessions`, `accounts`. Nie ma drugiej tabeli
+  użytkowników.
+- Wygenerowane `@@map("user")`/`"session"`/… pominięte: adapter odwołuje się do modeli po nazwie
+  (`prisma.user`, `prisma.session`), a tabele zachowują styl PascalCase całego schematu (`"User"`, `"Session"`,
+  `"Account"`, `"Verification"`).
+- `Account` dostał dodatkowo `@@unique([providerId, accountId])` — jedno konto GitHub należy do jednego
+  użytkownika sklepu.
+- `CartItem.product`: `Cascade` → **`Restrict`** (rozdz. 5: produktu w koszyku nie można usunąć — archiwizacja).
+- `Cart`/`CartItem` powstały w Lab 08 razem z `UNIQUE(userId)`, `UNIQUE(cartId, productId)` i
+  `CHECK (quantity BETWEEN 1 AND 99)`. Zastosowanych migracji nie edytuję, więc `20261103132555_auth_cart`
+  dodaje tylko brakujące zmiany (tabele auth, indeksy, `Restrict`) i blok `DO $$ … RAISE EXCEPTION`, który
+  przerywa migrację, gdyby `CHECK` ilości nie istniał. Bez `auth migrate`, bez `migrate reset`.
+
+Seed (`prisma db seed`) wykonuje wyłącznie `upsert` katalogu i dwóch fikcyjnych kont demo — **nie usuwa
+użytkowników, kont OAuth ani sesji** z logowania (test `seed.test.ts`). Konta OAuth i sesje tworzy wyłącznie
+biblioteka; seed nie zawiera tokenów, a `.env` żadnego użytkownika.
+
+## Lab 09 — koszyk
+
+### Warstwy i miejsce ustalania właściciela
+
+```
+app/basket/page.tsx (Server Component, odczyt) ─┐
+app/basket/actions.ts ("use server", mutacje) ──┼─> lib/cart/server.ts (server-only: sesja + klient)
+                                                └─> lib/cart/cart-service.ts  ← ownerId(): session.user.id
+                                                      walidacja (validation.ts), wyniki (types.ts)
+                                                    lib/cart/cart-store.ts     ← SQL z warunkiem właściciela
+```
+
+**Właściciel jest ustalany w jednym miejscu: `ownerId()` w [lib/cart/cart-service.ts](lib/cart/cart-service.ts)**
+— `(await getSession())?.user.id`, gdzie w aplikacji `getSession = getCurrentSession` z `lib/session.ts`
+(Better Auth weryfikuje podpis cookie i wiersz `Session` w bazie przy każdym żądaniu). Żadna operacja nie
+przyjmuje ID właściciela, koszyka, ceny ani sumy; nie ma zmiennej globalnej z bieżącym użytkownikiem ani cache
+prywatnych wyników (wszystkie trasy renderują się przy żądaniu).
+
+### Kontrakt operacji (Tabela 5.1)
+
+| Operacja (serwis / Server Action) | Wejście | Rezultat |
+| --- | --- | --- |
+| `getMyCart()` | — | `{ signedIn: false }` albo koszyk właściciela; brak wiersza `Cart` = pusty koszyk, suma `0` (bez tworzenia rekordu); awaria bazy → wyjątek → `app/basket/error.tsx` (nigdy „pusty koszyk”) |
+| `addProduct(productId)` / `addProductAction` | pole `productId` | +1 szt.; istniejąca pozycja zwiększa ilość, bez duplikatu; koszyk tworzony przy pierwszym zapisie |
+| `setQuantity(itemId, quantity)` / `setQuantityAction` | `itemId`, `quantity` | ilość 1…99 i ≤ stan, tylko we własnej pozycji |
+| `removeItem(itemId)` / `removeItemAction` | `itemId` | usunięcie własnej pozycji, odświeżenie podsumowania |
+
+Każda mutacja zwraca kontrolowany wynik `{ ok: true, quantity? }` albo `{ ok: false, error, field?, message }`
+(`unauthenticated`, `invalid_product_id`, `invalid_item_id`, `invalid_quantity`, `product_not_found`,
+`out_of_stock`, `insufficient_stock`, `limit_reached`, `item_not_found`, `unavailable`). Nieoczekiwane błędy
+(np. baza niedostępna) są logowane na serwerze, a użytkownik dostaje `unavailable` bez treści błędu ORM.
+Akcje czytają z `FormData` tylko nazwane pola (zamknięty kontrakt; inne pola i obiekty są ignorowane/odrzucane)
+i po sukcesie wywołują `revalidatePath("/basket")`; nie używają `redirect`, więc nie ma ryzyka przechwycenia
+wyjątku przekierowania w `catch`.
+
+### Polityka ilości i walidacja
+
+- Wejście: liczba (`Number.isSafeInteger`) lub kanoniczny zapis dziesiętny `^(0|[1-9][0-9]*)$`; odrzucane
+  `"1.5"`, `"1e2"`, `"-1"`, `" 3"`, `"01"`, `"0x10"`, obiekty, tablice.
+- `productId` i `itemId` (`CartItem.id` = `SERIAL`, int4): 1…2147483647 (zakres z Lab 06).
+- `quantity`: 1…99 **i** ≤ aktualny `Product.amount`. **Zero to błąd** `setQuantity` — usuwanie jest osobną
+  operacją. Produkt o stanie 0 lub nieistniejący nie jest dodawany.
+- Po spadku stanu pozycja dostaje `exceedsStock`; widok pokazuje komunikat i pozwala zmniejszyć ilość do stanu
+  lub usunąć pozycję (zwiększenie ponad stan jest odrzucane).
+- Koszyk **nie rezerwuje** towaru i nie zmienia `Product.amount`.
+- Ceny i sumy liczy serwer z aktualnych danych produktu, w groszach: `lineTotal` i `total` jako `bigint`
+  (int4 × 99 mieści się w double, ale suma wielu pozycji już nie musi); złote formatuje dopiero UI
+  (`formatPrice` przyjmuje `bigint` bez utraty precyzji).
+- Baza niezależnie od walidatora: `CHECK cart_item_quantity_range`, `UNIQUE(cartId, productId)`,
+  `UNIQUE(userId)`, FK.
+
+### Atomowość i właściciel w zapytaniu
+
+- `addOne` (`lib/cart/cart-store.ts`): jedna transakcja — `INSERT INTO "Cart" … ON CONFLICT ("userId") DO UPDATE`
+  (tworzy lub blokuje koszyk), potem `INSERT INTO "CartItem" … SELECT … WHERE amount >= 1 ON CONFLICT
+  ("cartId","productId") DO UPDATE SET quantity = quantity + 1 WHERE quantity < 99 AND quantity < stan`.
+  Równoległe żądanie czeka na konfliktujący wiersz i ponownie sprawdza warunek, więc dwa dodania dają +2,
+  a przy jednej wolnej sztuce (lub jednym miejscu do 99) dokładnie jedno się udaje. Odrzucenie wycofuje
+  transakcję, więc nie zostaje pusty nowy koszyk.
+- `setQuantity`: jedno `UPDATE "CartItem" … FROM "Cart", "Product" WHERE ci.id = $item AND c."userId" = $owner
+  AND p.amount >= $q`; `removeItem`: jedno `DELETE … USING "Cart" WHERE ci.id = $item AND c."userId" = $owner`.
+  Sprawdzenie właściciela jest częścią mutacji (bez „sprawdź, potem zmień”). Cudza i nieistniejąca pozycja dają
+  ten sam wynik `item_not_found`.
+
+### Interfejs
+
+- Nawigacja: „Zaloguj” (powrót do bieżącej sekcji) albo nazwa użytkownika (link do `/account`) i „Wyloguj”.
+- `/basket`: bez sesji — czytelny widok z przyciskiem logowania (powrót na `/basket`); z sesją — pusty stan z sumą
+  `0,00 zł` albo pozycje (obraz, nazwa, cena jednostkowa, ilość, wartość), suma i liczba sztuk.
+- „Dodaj do koszyka” w katalogu i szczegółach (`AddToCartForm`), zmiana ilości (`QuantityForm`) i usuwanie
+  (`RemoveItemForm`) przez `useActionState`: stan oczekiwania (`Dodawanie…`, `aria-busy`), komunikaty błędów
+  z `role="alert"` powiązane z polem (`aria-invalid`, `aria-describedby`). Wyłączony przycisk dla niedostępnego
+  produktu jest tylko podpowiedzią — serwer sprawdza wszystko ponownie.
+- „Złóż zamówienie” jest wyłączony z opisem „Składanie zamówień nie jest jeszcze dostępne” — nie udaje
+  zamówienia.
+
+## Lab 09 — sesja i kontrola dostępu
+
+- Każdy odczyt i każda mutacja koszyka/historii wywołuje `auth.api.getSession` z nagłówków bieżącego żądania.
+  Brak sesji → `unauthenticated` bez zmian w bazie (to nie przekierowanie, tylko odmowa w samej operacji).
+- `session.cookieCache.enabled: false` — każda weryfikacja czyta tabelę `Session`, więc wylogowanie, unieważnienie
+  lub wygaśnięcie sesji działa od następnego żądania (test w `sessions.test.ts` pokazuje, że z włączonym cache
+  unieważniona sesja byłaby akceptowana do końca `maxAge`).
+- Moduły danych (`lib/cart/server.ts`, `lib/orders/server.ts`, `lib/auth.ts`, `lib/session.ts`, `lib/db.ts`)
+  mają `server-only`; mutacje są w osobnym module `"use server"` (`app/basket/actions.ts`), nigdy inline w pliku
+  `"use client"`.
+- Ochrona CSRF własnych mutacji: Server Actions przyjmują tylko `POST` i Next.js porównuje `Origin` z `Host`
+  (sprawdzone: obcy `Origin` → `Invalid Server Actions request`, akcja nie wykonana); cookie sesji `SameSite=Lax`.
+- Nie ma `proxy.ts` — nie jest potrzebny, a i tak nie zastąpiłby kontroli w operacjach. Nie ma operacji
+  listowania koszyków, `getAllUsersWithCarts()` ani `transferCart()`.
+
+## Lab 09 — testy
+
+`npm run test` → **359 testów: 185 unit (10 plików) + 174 integracyjne (11 plików)**, wszystkie zielone.
+Integracyjne działają na osobnej bazie `shop_test` (strażnik nazwy z Lab 08), na własnych produktach testowych.
+
+**Wiarygodny kontekst sesji:** `tests/integration/test-auth.ts` tworzy testową instancję Better Auth z tymi
+samymi opcjami co aplikacja, adapterem Prisma na bazę testową i pluginem `testUtils` (tworzy prawdziwe wiersze
+`Session` i poprawnie podpisane cookies). Serwis koszyka dostaje wyłącznie nagłówki, a właściciela ustala
+`auth.api.getSession` — tak jak w aplikacji. Plugin nie rejestruje tras HTTP i **nie występuje w `lib/auth.ts`**,
+więc nie jest publicznym obejściem logowania; sekrety testowe są stałe i fikcyjne.
+
+| Plik | Co sprawdza |
+| --- | --- |
+| `tests/cart-validation.test.ts` | ilość 0, −1, 100, 1.5, `"1e1"`, `"05"`, NaN, 2^53, obiekty; zakres ID; pole błędu; ta sama odpowiedź dla cudzej i brakującej pozycji |
+| `tests/return-path.test.ts` | `https://evil.example`, `//evil`, `/\evil`, `javascript:` → `/basket` |
+| `tests/auth-options.test.ts` | brakujące/puste zmienne, krótki sekret, zły URL; dokładnie `GITHUB_CLIENT_ID/SECRET`, zakresy bez `repo`, cache wyłączony, brak `disable*Check` |
+| `tests/format.test.ts` | złote z `bigint` dokładnie powyżej 2^53 |
+| `cart-store.test.ts` | moduł danych z dwoma fikcyjnymi kontami: pusty koszyk bez rekordu, ceny i sumy z bazy, brak duplikatów, stan i limit 99, korekta po spadku stanu, A nie zmienia pozycji B, `Restrict` przy usuwaniu produktu |
+| `cart-session.test.ts` | warstwa chroniona: właściciel z sesji, brak cookie, fałszywy cookie, token bez podpisu, sesja usunięta w bazie, wygasła, po `signOut`; podmiana ID na pozycję B; przemycone `userId`/`price`; błędne dane bez zmian; trwałość po „restarcie” (nowy klient) i ponownym logowaniu; niedostępna baza → `unavailable`, `getMyCart` rzuca |
+| `cart-concurrency.test.ts` | równoległe `addProduct` (+2, jedna wolna sztuka → 1 sukces, 98 → 99, 12 prób przy stanie 5, wspólny koszyk), surowy SQL z ilością 0/100/−1, duplikat pary i drugi koszyk; rozszerzenie: `setQuantity‖setQuantity`, `setQuantity‖removeItem`, `removeItem‖removeItem` |
+| `sessions.test.ts` | rozszerzenie: `signOut` vs `revokeOtherSessions` vs `revokeSessions` dla dwóch profili, wpływ `cookieCache` |
+| `order-history.test.ts` | rozszerzenie: tylko własne zamówienia, numer zamówienia B = brak, niezmienność po zmianie ceny/nazwy i usunięciu produktu (`SetNull`), skrypt łączenia |
+| `migrations.test.ts`, `seed.test.ts` | tabele auth obok jednego `User`, unikalne indeksy, akcje FK; seed nie usuwa użytkowników/sesji/koszyków |
+
+### Wynik sprawdzeń (2026-11-03)
+
+| Krok | Wynik |
+| --- | --- |
+| `npm ci` → `prisma migrate deploy` → `prisma generate` | OK |
+| `npm run lint` | OK, bez ostrzeżeń |
+| `npm run test` | OK — 359/359 |
+| `npm run build` | OK; wszystkie trasy `ƒ` (nagłówek czyta sesję żądania) |
+| `npm run start` — katalog z Lab 07 | `/product-list` z filtrami (`?type=gpu&stock=available&sort=newest`), szczegóły, obraz, `/catalog/gpu` → 200; `/product-list/abc` → 404 — bez zmian |
+| Bezpośrednie wywołanie Server Action (`curl` z nagłówkiem `Next-Action`, z pominięciem formularza) | bez cookie i z fałszywym cookie: `addProductAction`, `setQuantityAction(itemId=1, quantity=50)`, `removeItemAction` → `{"ok":false,"error":"unauthenticated"}`; w bazie `CartItem` bez zmian (`1|1`, `2|2`) |
+| To samo z `Origin: https://evil.example` | Next.js: `Invalid Server Actions request`, akcja niewykonana |
+
+### Scenariusze odbioru A/B z prawdziwymi kontami GitHub (do pokazania na zajęciach)
+
+Automatyczne testy powyżej pokrywają każdy wiersz Tabeli 8.1 na prawdziwych sesjach Better Auth. Demonstracji
+z dwoma rzeczywistymi kontami GitHub w dwóch profilach przeglądarki **nie mogłam wykonać w tym środowisku** (brak
+zarejestrowanej OAuth App i drugiego konta) — przebieg na `npm run start`, wynik obserwowany w bazie
+(`docker compose exec postgres psql -U shop -d shop`):
+
+1. Profil A i profil B logują się przez GitHub → w `"User"`, `"Account"` (`providerId = 'github'`), `"Session"`
+   po jednym wierszu na profil; `/basket` pokazuje pusty koszyk i `0,00 zł`, w `"Cart"` brak wiersza.
+2. A dodaje produkt dwa razy, zmienia ilość, usuwa → jedna pozycja w `"CartItem"`, suma z ceny w bazie.
+3. A wpisuje w DevTools ilość `0`, `-1`, `1.5`, `100`, ilość > stan → komunikat przy polu, `"CartItem"` bez zmian.
+4. A: DevTools → Network → powtórzenie żądania `setQuantityAction` z `itemId` pozycji B (ID z bazy) → „Nie
+   znaleziono takiej pozycji w Twoim koszyku”; `SELECT * FROM "CartItem"` — pozycja B bez zmian. To samo dla
+   `removeItemAction` i `/order-history/<numer zamówienia B>` (404).
+5. A wylogowuje się, powtarza zapisane żądanie akcji → `unauthenticated`; `DELETE FROM "Session" WHERE …` dla B
+   → następne żądanie B odrzucone.
+6. Restart `npm run start` i ponowne logowanie A → koszyk A wraca; `docker compose stop postgres` → `/basket`
+   pokazuje „Nie udało się wczytać koszyka”, akcja zwraca bezpieczny błąd.
+
+## Lab 09 — rozszerzenia
+
+### Historia użytkownika
+
+- Modele `Order`/`OrderItem` ze snapshotem z Lab 08 (`productCode`, `productName`, `unitPrice` w groszach,
+  `quantity`, `lineTotal`/`total` jako int8, `SetNull` na produkcie, `Restrict` na użytkowniku).
+- Fixture: dwa fikcyjne konta (`demo-user` — `ZAM-2026-0001…0004`, `demo-user-b` — `0005…0006`) w seedzie.
+- `/order-history` — wyłącznie zamówienia zalogowanego użytkownika (`lib/orders/order-service.ts` bierze
+  właściciela z sesji, `order-store.ts` filtruje `userId` w zapytaniu); `/order-history/[number]` — cudzy
+  i nieistniejący numer dają ten sam 404.
+- Powiązanie z prawdziwymi kontami — kontrolowany lokalny skrypt (bez publicznego API):
+  `npm run db:link-orders -- a <email konta A>` i `npm run db:link-orders -- b <email konta B>` (konto musi
+  istnieć i mieć `Account` GitHub; jedna transakcja).
+- Testy: podmiana numeru na zamówienie B, niezmienność po zmianie ceny/nazwy i po usunięciu produktu.
+
+### Sesje na wielu urządzeniach
+
+`/account` pokazuje aktywne sesje (urządzenie z User-Agent, daty; bez tokenów i ID) i trzy przyciski:
+„Wyloguj to urządzenie” (`signOut` — usuwa tylko bieżący wiersz `Session`), „Wyloguj pozostałe urządzenia”
+(`revokeOtherSessions`) i „Wyloguj wszędzie” (`revokeSessions`). Drugi profil jest odrzucany przy następnym
+żądaniu, bo cookie cache jest wyłączony: przy `cookieCache.enabled` podpisane `session_data` w cookie
+pozwalałoby drugiemu profilowi działać aż do `maxAge` (pokazane w `sessions.test.ts`) — szybkość kosztem
+natychmiastowego unieważnienia.
+
+### Zapis współbieżny
+
+Polityka konfliktu: `setQuantity` zapisuje wartość bezwzględną jednym warunkowym `UPDATE` — blokada wiersza
+szereguje równoległe zmiany i wygrywa ostatnia zatwierdzona (brak „lost update”, bo nie ma odczyt-modyfikacja-zapis).
+Usunięcie jest ostateczne: późniejsze `setQuantity` nie znajduje własnego wiersza (`item_not_found`) i nie
+przywraca pozycji. Test na dwóch sesjach tego samego użytkownika i dwóch pulach połączeń (po 10 rund).
+Blokada przycisku w jednej przeglądarce nie pomaga: drugi profil, druga karta, powtórzone żądanie z DevTools lub
+`curl` omijają stan UI — o poprawności decyduje warunek w bazie.
+
+## Lab 09 — odpowiedzi na pytania
+
+**Co potwierdza dostawca OAuth, a co sprawdza sklep?** GitHub potwierdza, że użytkownik zalogował się na konto
+GitHub i zgodził się udostępnić profil i e-mail aplikacji o danym `client_id` (kod wymieniany na token po
+stronie serwera z `client_secret`). Sklep sprawdza `state`/PKCE i pochodzenie żądania, tworzy własną sesję, przy
+każdym żądaniu weryfikuje ją w bazie i **sam decyduje o uprawnieniach** — np. że pozycja należy do koszyka tego
+użytkownika.
+
+**Identyfikator GitHub, ID w bazie, token sesji.** `Account.accountId` to numeryczne ID konta GitHub (zewnętrzne,
+z `providerId = 'github'`); `User.id` to losowy string nadany przez Better Auth — klucz obcy koszyka i zamówień
+(niezależny od dostawcy i e-maila, który może się zmienić); token sesji (`Session.token`, w podpisanym cookie) to
+tajny, wygasający dowód zalogowania jednej przeglądarki — można go unieważnić, nie zmieniając użytkownika.
+
+**Dlaczego poprawny callback nie wystarcza do autoryzacji koszyka?** Callback tylko uwierzytelnia (kim jest
+użytkownik) i tworzy sesję. Każda późniejsza operacja przychodzi osobnym żądaniem z dowolnymi danymi —
+trzeba w niej zweryfikować sesję i sprawdzić, czy dany zasób należy do `session.user.id`.
+
+**Limit ilości a dostępność przy zakupie.** Koszyk nie rezerwuje towaru: stan sprawdzany przy dodaniu może
+spaść przez zakupy innych osób. Dostępność musi ponownie sprawdzić (i warunkowo zmniejszyć) transakcja
+checkoutu.
+
+**Unikalna para kluczy a kontrola właściciela.** `UNIQUE(cartId, productId)` wymusza najwyżej jedną pozycję
+produktu w koszyku (brak duplikatów także przy wyścigu). Nie mówi nic o tym, kto może zmienić pozycję —
+pozycja B jest w pełni poprawna, więc tylko warunek `c."userId" = session.user.id` chroni ją przed A.
+
+**Cena z przeglądarki.** Wszystko, co wysyła klient, może być zmienione (DevTools, `curl`). Cenę i sumę liczy
+serwer z `Product.price`; formularz przesyła tylko `productId`/`itemId`/`quantity`.
+
+**`use server` a autoryzacja.** Dyrektywa tworzy publiczny endpoint POST, który może wywołać każdy, kto zna
+ID akcji (jest w bundlu klienta). Nie sprawdza sesji ani uprawnień — robi to dopiero kod akcji
+(`cartService` → `getSession`).
+
+**Ukryty przycisk.** Akcję można wywołać, powtarzając żądanie z zakładki Network, `curl` z nagłówkiem
+`Next-Action` albo z konsoli — sprawdziłam to dla akcji koszyka (wynik wyżej).
+
+**Podmiana `itemId` na pozycję innej osoby.** `UPDATE`/`DELETE` z warunkiem właściciela dopasowuje 0 wierszy →
+`item_not_found`, identycznie jak dla nieistniejącego ID; dane B się nie zmieniają i nic o nich nie wycieka
+(testy `cart-store`, `cart-session`).
+
+## Lab 09 — trasy
+
+| URL | Zawartość |
+| --- | --- |
+| `/login?next=…` | logowanie przez GitHub; `next` tylko ze znanych ścieżek; komunikaty błędów OAuth |
+| `/basket` | własny koszyk albo widok logowania |
+| `/order-history`, `/order-history/[number]` | własne zamówienia (rozszerzenie) |
+| `/account` | aktywne sesje i wylogowanie urządzeń (rozszerzenie) |
+| `/api/auth/*` | endpointy Better Auth (`toNextJsHandler`) |
+| `/`, `/product-list…`, `/catalog…`, `/about`, `/api/products` | bez zmian względem Lab 08 (+ „Dodaj do koszyka”) |
+
+## Lab 09 — ograniczenia
+
+- **Checkout transakcyjny nie jest zaimplementowany** (rozszerzenie opcjonalne): przycisk jest wyłączony,
+  koszyk nie zmniejsza stanu.
+- Demonstracja z dwoma prawdziwymi kontami GitHub wymaga zarejestrowanej OAuth App i wpisania jej danych do
+  `.env`; tutaj sprawdzone automatycznie (prawdziwe sesje Better Auth) i `curl`-em bez sesji.
+- Wszystkie trasy są dynamiczne (nagłówek czyta sesję) — świadomie, żeby nic prywatnego nie było prerenderowane
+  ani buforowane wspólnie.
+- `@better-auth/prisma-adapter@1.7.14` (wymagany przez instrukcję) używa `@better-auth/core@1.7.15`,
+  a `better-auth@1.7.7` — `1.7.7`; działa i typuje się poprawnie, ale w `node_modules` są dwie kopie `core`.
+- Next.js 16.3.8 ma znane podatności (`npm audit`) — wersję ustala prowadzący.
+
+## Lab 09 — źródła
+
+- Better Auth 1.7.7: Installation, Next.js integration (`toNextJsHandler`, `auth.api.getSession` z `headers()`),
+  Prisma adapter i `auth generate --adapter prisma`, CLI, Database (core schema: user/session/account/
+  verification), Session management (`cookieCache`, `revokeSessions`, `revokeOtherSessions`, `listSessions`),
+  GitHub provider (zakresy `read:user`, `user:email`), Security (CSRF, origin check, `trustedOrigins`, cookies,
+  rate limit), kod źródłowy pakietu (`social-providers/github.ts`, `plugins/test-utils`).
+- GitHub Docs: Creating an OAuth App, Scopes for OAuth apps, różnice OAuth App / GitHub App.
+- Next.js 16 (`node_modules/next/dist/docs`): Authentication, Data Security, Server Actions i `"use server"`
+  (bezpieczeństwo, porównanie Origin/Host), `revalidatePath`, `useActionState`, `server-only`.
+- PostgreSQL 17: `INSERT … ON CONFLICT DO UPDATE` (zachowanie przy współbieżności w READ COMMITTED),
+  `UPDATE … FROM`, `DELETE … USING`, ograniczenia `CHECK`/`UNIQUE`/FK, `DO` + `RAISE`.
+- Prisma 7: relacje i akcje referencyjne, interaktywne transakcje, `$queryRaw`/`$executeRaw` (parametryzowane).
+
+---
+
+# Lab 08 — baza danych (stan wyjściowy)
 
 Sklep komputerowy (Programowanie BackEnd, KIS M-7, PK). Lab 06 dał podstawę (routing, layout, repozytorium,
 walidację danych, obsługę pustego wyniku, 404 i awarii), Lab 07 — szczegóły produktu i filtry w adresie.
