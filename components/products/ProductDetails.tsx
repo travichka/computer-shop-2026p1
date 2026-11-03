@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import AddToCartForm from "@/components/cart/AddToCartForm";
 import { formatDate, formatPrice } from "@/lib/format";
 import { PRODUCT_TYPE_LABELS, type Product } from "@/lib/products/types";
 
@@ -72,6 +73,7 @@ export default function ProductDetails({
           </div>
         </dl>
       </div>
+      <AddToCartForm productId={product.id} available={available} />
       <h2>Opis</h2>
       <p className="mb-0">{product.description}</p>
     </article>

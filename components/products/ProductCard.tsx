@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { formatPrice } from "@/lib/format";
 import { PRODUCT_TYPE_LABELS, type Product } from "@/lib/products/types";
+import AddToCartForm from "@/components/cart/AddToCartForm";
 import DescriptionToggle from "./DescriptionToggle";
 import styles from "./products.module.css";
 
@@ -42,6 +43,7 @@ export default function ProductCard({ product }: { product: Product }) {
           </div>
         </dl>
         <DescriptionToggle description={product.description} />
+        <AddToCartForm productId={product.id} available={available} />
       </div>
     </article>
   );
