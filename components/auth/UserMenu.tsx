@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getCurrentSession } from "@/lib/session";
 import HeaderSignIn from "./HeaderSignIn";
 import SignOutButton from "./SignOutButton";
@@ -20,7 +21,7 @@ export default async function UserMenu() {
   return (
     <div className="user-menu">
       <span>
-        Zalogowano: <strong>{session.user.name || session.user.email}</strong>
+        Zalogowano: <Link href="/account">{session.user.name || session.user.email}</Link>
       </span>
       <SignOutButton />
     </div>
