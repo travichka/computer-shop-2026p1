@@ -15,7 +15,7 @@ export const MIN_SECRET_LENGTH = 32;
  * Reads and checks the server-only auth variables. A missing or blank value is an explicit error
  * at configuration time instead of `process.env.X as string` silently passing undefined on.
  */
-export function readAuthEnv(env: NodeJS.ProcessEnv = process.env): AuthEnv {
+export function readAuthEnv(env: Partial<Record<string, string>> = process.env): AuthEnv {
   const missing = AUTH_ENV.filter((name) => !env[name]?.trim());
   if (missing.length > 0) {
     throw new Error(`Missing auth environment variables: ${missing.join(", ")} — see .env.example.`);

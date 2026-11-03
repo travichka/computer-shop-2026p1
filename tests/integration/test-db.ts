@@ -40,6 +40,7 @@ export async function resetDatabase(client: PrismaClient): Promise<void> {
     throw new Error(`Refusing to clean "${connected}": expected the test database "${testDatabaseName()}".`);
   }
   await client.$executeRawUnsafe(
-    'TRUNCATE "OrderItem", "Order", "CartItem", "Cart", "User", "Product", "Category" RESTART IDENTITY CASCADE',
+    `TRUNCATE "OrderItem", "Order", "CartItem", "Cart", "Session", "Account", "Verification", "User",
+     "Product", "Category" RESTART IDENTITY CASCADE`,
   );
 }
