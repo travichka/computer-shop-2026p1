@@ -9,7 +9,7 @@ import { createCartService, type CartService } from "@/lib/cart/cart-service";
 // the testUtils plugin, which creates real Session rows and correctly signed cookies. The plugin
 // registers no HTTP routes and is never part of lib/auth.ts, so it is not a login bypass of the app.
 // Fixed fake credentials: the tests never talk to GitHub and do not need the real .env secrets.
-const TEST_ENV = readAuthEnv({
+export const TEST_ENV = readAuthEnv({
   BETTER_AUTH_SECRET: "test-only-secret-0123456789abcdefghijklmnopqrstuv",
   BETTER_AUTH_URL: "http://localhost:3000",
   GITHUB_CLIENT_ID: "test-client-id",
