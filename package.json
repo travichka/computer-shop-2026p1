@@ -17,6 +17,7 @@
     "db:set-amount": "tsx scripts/set-amount.ts",
     "db:explain": "tsx scripts/explain-catalog.ts",
     "db:race": "tsx scripts/reserve-race.ts",
+    "db:link-orders": "tsx scripts/link-demo-orders.ts",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration"
   },
