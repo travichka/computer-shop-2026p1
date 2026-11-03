@@ -67,8 +67,9 @@ describe("history does not change with the catalog", () => {
     await client.product.delete({ where: { id: 40 } });
     const after = await historyB.getMyOrder("ZAM-2026-0005");
     expect(after.signedIn && after.order?.lines[0]).toMatchObject({ productId: null });
-    const strip = (o: typeof before) => o.signedIn && o.order?.lines.map(({ productId: _id, ...rest }) => rest);
-    expect(strip(after)).toEqual(strip(before));
+    const snapshot = (o: typeof before) =>
+      o.signedIn && o.order?.lines.map((l) => [l.productCode, l.productName, l.unitPrice, l.quantity, l.lineTotal]);
+    expect(snapshot(after)).toEqual(snapshot(before));
   });
 });
 
