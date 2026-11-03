@@ -1,7 +1,9 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { ProductValidationError } from "@/lib/products/validation";
 import { seedCatalog } from "@/prisma/seed-catalog";
+import { seedDemoData } from "@/prisma/seed-demo";
 import { catalogSnapshot, readCatalogJson } from "./helpers";
+import { createTestAuth, signIn, USER_A } from "./test-auth";
 import { createTestClient, resetDatabase } from "./test-db";
 
 const client = createTestClient();
@@ -87,5 +89,33 @@ describe("seedCatalog", () => {
     // No category and no product from the file was kept — only the pre-existing row.
     expect((await client.category.findMany()).map((c) => c.code)).toEqual(["other"]);
     expect((await client.product.findMany()).map((p) => p.id)).toEqual([9000]);
+  });
+});
+
+describe("seed and auth data (Lab 09)", () => {
+  it("re-seeding keeps users, accounts, sessions and carts created by logging in", async () => {
+    await seedCatalog(client, readCatalogJson());
+    await seedDemoData(client);
+    const auth = createTestAuth(client);
+    await client.user.create({ data: USER_A });
+    await client.account.create({
+      data: { id: "acc-a", accountId: "12345", providerId: "github", userId: USER_A.id, updatedAt: new Date() },
+    });
+    await signIn(auth, USER_A.id);
+    await client.cart.create({ data: { userId: USER_A.id, items: { create: { productId: 5, quantity: 2 } } } });
+    const before = {
+      users: await client.user.findMany({ orderBy: { id: "asc" } }),
+      sessions: await client.session.findMany(),
+      accounts: await client.account.findMany(),
+      items: await client.cartItem.findMany({ where: { cart: { userId: USER_A.id } } }),
+    };
+
+    await seedCatalog(client, readCatalogJson());
+    await seedDemoData(client);
+
+    expect(await client.session.findMany()).toEqual(before.sessions);
+    expect(await client.account.findMany()).toEqual(before.accounts);
+    expect(await client.cartItem.findMany({ where: { cart: { userId: USER_A.id } } })).toEqual(before.items);
+    expect((await client.user.findMany({ orderBy: { id: "asc" } })).map((u) => u.id)).toEqual(before.users.map((u) => u.id));
   });
 });
