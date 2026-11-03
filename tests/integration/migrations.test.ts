@@ -65,3 +65,39 @@ describe("migrations on an empty database", () => {
     expect(rows[0].indexdef).toContain("UNIQUE");
   });
 });
+
+describe("auth_cart migration (Lab 09)", () => {
+  it("creates the Better Auth tables next to the single User table", async () => {
+    const rows = await client.$queryRaw<{ table_name: string }[]>`
+      SELECT table_name FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name IN ('User', 'Session', 'Account', 'Verification', 'user', 'session')
+      ORDER BY table_name`;
+    expect(rows.map((row) => row.table_name)).toEqual(["Account", "Session", "User", "Verification"]);
+  });
+
+  it("makes session tokens and provider accounts unique", async () => {
+    const rows = await client.$queryRaw<{ indexname: string }[]>`
+      SELECT indexname FROM pg_indexes WHERE indexdef LIKE 'CREATE UNIQUE%'
+        AND tablename IN ('Session', 'Account') ORDER BY indexname`;
+    expect(rows.map((row) => row.indexname)).toEqual([
+      "Account_pkey",
+      "Account_providerId_accountId_key",
+      "Session_pkey",
+      "Session_token_key",
+    ]);
+  });
+
+  it("restricts deleting a product in a cart and cascades user → session/account/cart", async () => {
+    const rows = await client.$queryRaw<{ conname: string; confdeltype: string }[]>`
+      SELECT conname, confdeltype::text FROM pg_constraint
+      WHERE conname IN ('CartItem_productId_fkey', 'Session_userId_fkey', 'Account_userId_fkey', 'Cart_userId_fkey')
+      ORDER BY conname`;
+    // r = RESTRICT, c = CASCADE
+    expect(rows.map((row) => [row.conname, row.confdeltype])).toEqual([
+      ["Account_userId_fkey", "c"],
+      ["CartItem_productId_fkey", "r"],
+      ["Cart_userId_fkey", "c"],
+      ["Session_userId_fkey", "c"],
+    ]);
+  });
+});
