@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { NAV_LINKS, SITE } from "@/lib/site";
+import UserMenu from "./auth/UserMenu";
 import NavLink from "./NavLink";
 
 export default function SiteHeader() {
@@ -17,6 +18,7 @@ export default function SiteHeader() {
           ))}
         </ul>
       </nav>
+      <UserMenu />
     </header>
   );
 }
