@@ -9,6 +9,7 @@ describe("poolConfig (Lab 10 — pool per cloud instance)", () => {
     expect(config.max).toBe(DEFAULT_POOL_MAX);
     expect(config.idleTimeoutMillis).toBeLessThanOrEqual(10_000);
     expect(config.connectionTimeoutMillis).toBeGreaterThan(0);
+    expect(config.application_name).toBe("computer-shop");
   });
 
   it("keeps the connection string (TLS mode comes from it, never disabled here)", () => {

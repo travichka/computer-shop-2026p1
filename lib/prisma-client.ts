@@ -6,6 +6,7 @@ import { PrismaClient } from "@/lib/generated/prisma/client";
 export const DEFAULT_POOL_MAX = 5;
 export const POOL_IDLE_TIMEOUT_MS = 5_000;
 export const POOL_CONNECTION_TIMEOUT_MS = 10_000;
+export const APP_CONNECTION_NAME = "computer-shop";
 
 /**
  * pg pool settings for one server process. `max` limits the connections of THIS process only;
@@ -26,6 +27,8 @@ export function poolConfig(connectionString: string, env: Partial<Record<string,
     idleTimeoutMillis: POOL_IDLE_TIMEOUT_MS,
     // A sleeping serverless database may need a few seconds to wake up.
     connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
+    // Visible in pg_stat_activity: lets the operator count the app's connections per role/host.
+    application_name: APP_CONNECTION_NAME,
   };
 }
 
