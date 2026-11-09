@@ -21,7 +21,8 @@
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "db:check": "tsx scripts/db-check.ts",
-    "db:status": "prisma migrate status"
+    "db:status": "prisma migrate status",
+    "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
     "@better-auth/prisma-adapter": "1.7.14",
