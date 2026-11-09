@@ -9,7 +9,12 @@ import { formatPrice } from "@/lib/format";
 import { queryProducts } from "@/lib/products/query";
 import { PRODUCT_TYPES, type Product, type ProductCriteria } from "@/lib/products/types";
 
-const base = new URL(process.argv[2] ?? process.env.SMOKE_URL ?? "http://localhost:3000").origin;
+//   npm run smoke -- <url> --expect-sha <commit>   also checks that exactly this commit is deployed
+const args = process.argv.slice(2);
+const shaFlag = args.indexOf("--expect-sha");
+const expectedSha = shaFlag >= 0 ? args[shaFlag + 1] : process.env.SMOKE_EXPECT_SHA;
+const positional = args.filter((arg, index) => !arg.startsWith("--") && !(shaFlag >= 0 && index === shaFlag + 1));
+const base = new URL(positional[0] ?? process.env.SMOKE_URL ?? "http://localhost:3000").origin;
 const results: { name: string; ok: boolean; detail: string; ms: number }[] = [];
 
 async function check(name: string, run: () => Promise<string>) {
@@ -43,6 +48,17 @@ function assertNoLeak(text: string, where: string) {
 }
 
 let all: Product[] = [];
+
+await check("deployed version", async () => {
+  const response = await get("/api/version");
+  assert(response.status === 200, `HTTP ${response.status}`);
+  const version = (await response.json()) as { commit: string; environment: string; region: string; node: string };
+  assert(version.node.startsWith("v24."), `Node.js ${version.node}, expected 24.x`);
+  if (expectedSha) {
+    assert(version.commit === expectedSha, `commit ${version.commit}, expected ${expectedSha}`);
+  }
+  return `${version.commit.slice(0, 12)} ${version.environment} ${version.region} node ${version.node}`;
+});
 
 await check("home page", async () => {
   const body = await html("/", 200);
