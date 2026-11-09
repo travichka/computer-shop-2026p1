@@ -60,6 +60,7 @@ jobs:
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_CLI: vercel@65.9.0
     steps:
       - uses: actions/checkout@v5
@@ -69,15 +70,15 @@ jobs:
           cache: npm
 
       - name: Pull Production settings and variables
-        run: npx --yes $VERCEL_CLI pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        run: npx --yes "$VERCEL_CLI" pull --yes --environment=production --token="$VERCEL_TOKEN"
 
       - name: Build exactly this commit
-        run: npx --yes $VERCEL_CLI build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        run: npx --yes "$VERCEL_CLI" build --prod --token="$VERCEL_TOKEN"
 
       - name: Publish
         id: publish
         run: |
-          url=$(npx --yes $VERCEL_CLI deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
+          url=$(npx --yes "$VERCEL_CLI" deploy --prebuilt --prod --token="$VERCEL_TOKEN")
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
       - name: Acceptance smoke test on the stable domain

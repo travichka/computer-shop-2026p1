@@ -71,7 +71,7 @@ jobs:
       - name: Start the built app and run the smoke test
         run: |
           npm run start -- -p 3000 > next.log 2>&1 &
-          for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3000 && break; sleep 1; done
+          for _ in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3000 && break; sleep 1; done
           npm run smoke -- http://localhost:3000
 
       - name: Server log on failure
