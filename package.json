@@ -23,7 +23,8 @@
     "db:check": "tsx scripts/db-check.ts",
     "db:status": "prisma migrate status",
     "smoke": "tsx scripts/smoke.ts",
-    "perf": "tsx scripts/perf.ts"
+    "perf": "tsx scripts/perf.ts",
+    "db:backup-restore": "tsx scripts/backup-restore.ts"
   },
   "dependencies": {
     "@better-auth/prisma-adapter": "1.7.14",
