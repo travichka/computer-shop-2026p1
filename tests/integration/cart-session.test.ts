@@ -183,6 +183,7 @@ describe("persistence and failure", () => {
       const result = await service.addProduct(1);
       expect(result).toEqual({ ok: false, error: "unavailable", message: expect.not.stringMatching(/prisma|ECONN|127/i) });
       expect(logError).toHaveBeenCalledOnce();
+      expect(logError).toHaveBeenCalledWith("cart.addProduct", expect.anything());
       await expect(service.getMyCart()).rejects.toThrow();
     } finally {
       await down.$disconnect();
