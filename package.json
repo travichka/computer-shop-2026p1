@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
@@ -51,7 +51,7 @@
     "vitest": "^5.0.5"
   },
   "engines": {
-    "node": ">=24 <25"
+    "node": "24.x"
   },
   "allowScripts": {
     "fsevents@2.3.3": true,
