@@ -1,6 +1,9 @@
 import { parseProductCriteria } from "@/lib/products/criteria";
 import { productRepository } from "@/lib/products/repository";
 
+// The repository uses PrismaPg + pg (TCP sockets) — Node.js runtime only, never Edge.
+export const runtime = "nodejs";
+
 /**
  * GET /api/products?type=all|cpu|gpu|ram|disk&stock=all|available|unavailable&sort=name|newest
  * 200 → Product[] (possibly []), 400 → invalid parameters, 500 → repository failure.
