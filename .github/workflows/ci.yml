@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   check:
-    name: lint · test · build · smoke
+    name: lint · test · build · smoke · e2e
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -73,6 +73,11 @@ jobs:
           npm run start -- -p 3000 > next.log 2>&1 &
           for _ in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3000 && break; sleep 1; done
           npm run smoke -- http://localhost:3000
+
+      - name: Browser test of the cart (own *_e2e_test database, fake auth values)
+        run: |
+          npx --no-install playwright install --with-deps chromium
+          npm run test:e2e
 
       - name: Server log on failure
         if: failure()
