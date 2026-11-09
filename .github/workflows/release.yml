@@ -1,0 +1,92 @@
+# Release of a checked commit of main to Vercel Production (Lab 10, extension "Automatyczne CI/CD").
+# Order: tests → migrations (operator, migrate.yml; here only verified) → publish → acceptance.
+# Vercel's own Git deployments are disabled in vercel.json, so this workflow is the only way
+# a commit reaches Production: a failing lint/test/build skips the publish job.
+#
+# Repository secrets (GitHub → Settings → Secrets and variables → Actions):
+#   VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID   (vercel.com → Account → Tokens; .vercel/project.json)
+# Environment "production": secret MIGRATION_DATABASE_URL (see migrate.yml),
+#   variable PRODUCTION_URL = https://<stable-domain> (also BETTER_AUTH_URL in Vercel).
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  migrations-applied:
+    name: migrations already applied
+    needs: checks
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Target (password masked)
+        run: npm run db:check -- --target-only
+      - name: Stop if the database is behind the committed migrations
+        run: |
+          if ! npx --no-install prisma migrate status; then
+            echo "::error::Pending or failed migrations — run the 'Migrate production database' workflow first."
+            exit 1
+          fi
+
+  deploy:
+    name: publish to Vercel Production
+    needs: migrations-applied
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_CLI: vercel@65.9.0
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Pull Production settings and variables
+        run: npx --yes $VERCEL_CLI pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build exactly this commit
+        run: npx --yes $VERCEL_CLI build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Publish
+        id: publish
+        run: |
+          url=$(npx --yes $VERCEL_CLI deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Acceptance smoke test on the stable domain
+        run: npm ci && npm run smoke -- "${{ vars.PRODUCTION_URL }}" --expect-sha "${{ github.sha }}"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Released ${{ github.sha }}"
+            echo "- deployment: ${{ steps.publish.outputs.url }}"
+            echo "- production: ${{ vars.PRODUCTION_URL }}"
+          } >> "$GITHUB_STEP_SUMMARY"
