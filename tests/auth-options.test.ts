@@ -25,6 +25,33 @@ describe("readAuthEnv", () => {
   });
 });
 
+describe("readAuthEnv on Vercel (Lab 10 — login after moving to the cloud)", () => {
+  const PROD = { ...VALID, BETTER_AUTH_URL: "https://computer-shop-2026p1.vercel.app" };
+
+  it("accepts the stable https domain in Production and Preview", () => {
+    expect(readAuthEnv({ ...PROD, VERCEL_ENV: "production" }).BETTER_AUTH_URL).toBe(PROD.BETTER_AUTH_URL);
+    expect(() => readAuthEnv({ ...PROD, VERCEL_ENV: "preview" })).not.toThrow();
+  });
+
+  it.each(["http://localhost:3000", "https://localhost:3000", "http://computer-shop-2026p1.vercel.app", "https://127.0.0.1"])(
+    "rejects %s as the deployed base URL",
+    (url) => {
+      expect(() => readAuthEnv({ ...VALID, BETTER_AUTH_URL: url, VERCEL_ENV: "production" })).toThrow(/https/);
+    },
+  );
+
+  it("rejects a path in the deployed base URL (callback would be wrong)", () => {
+    expect(() =>
+      readAuthEnv({ ...PROD, BETTER_AUTH_URL: "https://computer-shop-2026p1.vercel.app/api/auth", VERCEL_ENV: "production" }),
+    ).toThrow(/origin only/);
+  });
+
+  it("still allows http://localhost in local development", () => {
+    expect(() => readAuthEnv({ ...VALID, VERCEL_ENV: "development" })).not.toThrow();
+    expect(() => readAuthEnv(VALID)).not.toThrow();
+  });
+});
+
 describe("sharedAuthOptions", () => {
   const options = sharedAuthOptions(readAuthEnv(VALID));
 
@@ -36,6 +63,13 @@ describe("sharedAuthOptions", () => {
       scope: ["read:user", "user:email"],
     });
     expect(options.socialProviders.github.scope.some((scope) => scope.includes("repo"))).toBe(false);
+  });
+
+  it("trusts exactly the origin of BETTER_AUTH_URL — no wildcard domains", () => {
+    expect(options.trustedOrigins).toEqual(["http://localhost:3000"]);
+    const prod = sharedAuthOptions(readAuthEnv({ ...VALID, BETTER_AUTH_URL: "https://computer-shop-2026p1.vercel.app" }));
+    expect(prod.trustedOrigins).toEqual(["https://computer-shop-2026p1.vercel.app"]);
+    expect(prod.trustedOrigins.some((origin) => origin.includes("*"))).toBe(false);
   });
 
   it("keeps the database session authoritative and the security checks on", () => {
