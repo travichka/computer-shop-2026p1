@@ -46,3 +46,6 @@ next-env.d.ts
 
 # helper output of `auth generate` (merged into prisma/schema.prisma)
 /auth.prisma
+
+# database dumps (Lab 10 backup/restore) — may contain personal data
+/backups/
