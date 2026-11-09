@@ -19,7 +19,9 @@
     "db:race": "tsx scripts/reserve-race.ts",
     "db:link-orders": "tsx scripts/link-demo-orders.ts",
     "test:unit": "vitest run --project unit",
-    "test:integration": "vitest run --project integration"
+    "test:integration": "vitest run --project integration",
+    "db:check": "tsx scripts/db-check.ts",
+    "db:status": "prisma migrate status"
   },
   "dependencies": {
     "@better-auth/prisma-adapter": "1.7.14",
