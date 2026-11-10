@@ -202,9 +202,9 @@ only** (untick Preview and Development), **Save**.
 | `GITHUB_CLIENT_ID` | Client ID from Part 3 |
 | `GITHUB_CLIENT_SECRET` | client secret from Part 3 |
 
-Paste values **without quotes and without spaces** around them. Do **not** tick **Sensitive**: the Release
-workflow builds with `vercel pull` + `vercel build` in GitHub Actions, and the CLI cannot download the values of
-Sensitive variables, so the build would not see them. The values are still encrypted and server-only.
+Paste values **without quotes and without spaces** around them. **Sensitive** may stay on (Vercel turns it on
+by default for Production): the Release workflow lets Vercel build the commit on its own builders, which can read
+Sensitive values. Nobody — including the CLI and GitHub Actions — can read them back afterwards.
 Do **not** add a `NEXT_PUBLIC_` prefix to anything.
 
 ### 4.2 Project settings
@@ -299,7 +299,7 @@ If you prefer not to use the workflow: run `npx --yes vercel@65.9.0 deploy --pro
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Build: `Cannot resolve environment variable: DATABASE_URL` | variable missing for Production | Part 4.1, then rerun Release |
-| Build/log: `Missing auth environment variables: …` | variable missing, or marked **Sensitive** (CLI gets it empty) | Part 4.1: re-create it without Sensitive |
+| Build/log: `Missing auth environment variables: …` | variable missing or not ticked for Production | Part 4.1 |
 | Build: `BETTER_AUTH_SECRET must have at least 32 characters` | the command was pasted instead of its output, or a short value | Part 4.1: paste the 44-character output |
 | Annotation: `Environment URL '…vercel.app' is not a valid http(s) URL` | `PRODUCTION_URL` without `https://` | Part 5.1: `https://computer-shop-2026p1.vercel.app` |
 | Log: `BETTER_AUTH_URL must be the public https:// domain on Vercel` | `localhost`/`http`/path in it | set exactly `<DOMAIN>`, rerun Release |

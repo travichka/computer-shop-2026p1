@@ -43,7 +43,7 @@ Kolejność każdego wydania: **testy → migracje → publikacja → odbiór**.
 | Testy | `.github/workflows/ci.yml`: `npm ci` → `prisma generate` → `lint` → `test` (unit + integracja na odtwarzanej bazie) → `build` → migracje + seed na pustej bazie CI → `next start` + `npm run smoke` → Playwright | automatycznie przy każdym push/PR |
 | Migracje | `.github/workflows/migrate.yml` (ręczne uruchomienie, wpisanie `production`) albo z terminala operatora, zob. niżej | **operator** — świadoma czynność na wspólnej bazie |
 | Bramka migracji | `release.yml`, job `migrations-applied`: `prisma migrate status` na Production; oczekujące migracje zatrzymują wydanie | automatycznie |
-| Publikacja | `release.yml`, job `deploy` (tylko `main`, `needs` = zielone CI + bramka): `vercel pull` → `vercel build --prod` → `vercel deploy --prebuilt --prod` | automatycznie po zatwierdzeniu PR i scaleniu |
+| Publikacja | `release.yml`, job `deploy` (tylko `main`, `needs` = zielone CI + bramka): `vercel deploy --prod --build-env APP_COMMIT_SHA=<sha>` — Vercel buduje przesłany checkout dokładnie tego commitu na własnych builderach (zmienne Production pozostają *Sensitive*; `vercel pull` dostaje tylko ich atrapy) | automatycznie po zatwierdzeniu PR i scaleniu |
 | Odbiór | automatycznie `npm run smoke -- <domena> --expect-sha <SHA>`; scenariusze z dwoma kontami GitHub — ręcznie (tabela niżej) | automat + operator |
 
 Własne wdrożenia Git integracji Vercel są wyłączone (`vercel.json`: `"git": { "deploymentEnabled": false }`),
@@ -339,7 +339,7 @@ można go uruchomić wiele razy (CI, ponowienie, Preview) i nie zmienia danych. 
 **wspólny stan** bazy, wymaga praw DDL, zależy od kolejności i nie da się jej „odbudować”. Gdyby migrował każdy
 build, każde budowanie (także z niezaufanego PR) dostawałoby hasło właściciela bazy Production, nieudany build po
 udanej migracji zostawiałby nowy schemat ze starym kodem, a ponowienia uruchamiałyby DDL bez kontroli. Dlatego
-u mnie build (`release.yml` / `vercel build`) nie ma `MIGRATION_DATABASE_URL`, a migracja jest osobnym etapem
+u mnie build (na builderach Vercel, uruchamiany z `release.yml`) nie ma `MIGRATION_DATABASE_URL`, a migracja jest osobnym etapem
 operatora.
 
 **Co zmienia nowy deploy w stosunku do istniejących danych?** Nic w bazie. Powstaje nowe, niezmienne wdrożenie
@@ -402,7 +402,7 @@ obejścia OAuth.
 ## Lab 10 — źródła
 
 Vercel: Git integrations i `git.deploymentEnabled`, Plans (Hobby), Environment variables, Node.js versions,
-Regions, Fluid Compute i `attachDatabasePool`, GitHub Actions z `vercel build --prebuilt`, Logs, Instant
+Regions, Fluid Compute i `attachDatabasePool`, GitHub Actions z Vercel CLI (`vercel deploy --prod`, Sensitive Environment Variables), Logs, Instant
 Rollback. Prisma 7: Deploying database changes (`migrate deploy`), Deploy to Vercel, connection pooling,
 `@prisma/adapter-pg`. Neon: connection pooling (PgBouncer), regions, roles, connect securely (`sslmode=verify-full`).
 PostgreSQL 17: `GRANT`, `ALTER DEFAULT PRIVILEGES`, `pg_dump`/`pg_restore`, `pg_stat_activity`. Better Auth:
