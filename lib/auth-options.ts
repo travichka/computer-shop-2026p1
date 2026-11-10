@@ -8,6 +8,8 @@ const AUTH_ENV = ["BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "GITHUB_CLIENT_ID", "
 type AuthEnvName = (typeof AUTH_ENV)[number];
 export type AuthEnv = Record<AuthEnvName, string>;
 
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "0.0.0.0"]);
+
 /** Minimum length of BETTER_AUTH_SECRET (e.g. `openssl rand -base64 32` gives 44 characters). */
 export const MIN_SECRET_LENGTH = 32;
 
@@ -28,6 +30,17 @@ export function readAuthEnv(env: Partial<Record<string, string>> = process.env):
   if (url === null || (url.protocol !== "http:" && url.protocol !== "https:")) {
     throw new Error("BETTER_AUTH_URL must be an absolute http(s) URL, e.g. http://localhost:3000.");
   }
+  // Deployed on Vercel (Preview/Production): the OAuth callback must come back to the stable HTTPS
+  // domain of this environment. A copied localhost value would send GitHub back to the developer's
+  // machine, so it is a configuration error instead of a silent login failure.
+  if (env.VERCEL_ENV === "production" || env.VERCEL_ENV === "preview") {
+    if (url.protocol !== "https:" || LOCAL_HOSTS.has(url.hostname)) {
+      throw new Error(`BETTER_AUTH_URL must be the public https:// domain on Vercel (${env.VERCEL_ENV}).`);
+    }
+    if (url.pathname !== "/" || url.search || url.hash) {
+      throw new Error("BETTER_AUTH_URL must be an origin only, e.g. https://shop.vercel.app (no path).");
+    }
+  }
   return values;
 }
 
@@ -41,6 +54,9 @@ export function sharedAuthOptions(env: AuthEnv) {
     appName: "Computer Shop 2026",
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
+    // Exactly the origin of this environment — no wildcard like https://*.vercel.app, so a random
+    // Preview or foreign deployment cannot start or finish a login against this instance.
+    trustedOrigins: [new URL(env.BETTER_AUTH_URL).origin],
     socialProviders: {
       github: {
         clientId: env.GITHUB_CLIENT_ID,

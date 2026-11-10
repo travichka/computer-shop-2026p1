@@ -1,5 +1,9 @@
 import { parseProductCriteria } from "@/lib/products/criteria";
+import { logServerError } from "@/lib/log";
 import { productRepository } from "@/lib/products/repository";
+
+// The repository uses PrismaPg + pg (TCP sockets) — Node.js runtime only, never Edge.
+export const runtime = "nodejs";
 
 /**
  * GET /api/products?type=all|cpu|gpu|ram|disk&stock=all|available|unavailable&sort=name|newest
@@ -15,7 +19,7 @@ export async function GET(request: Request) {
   try {
     return Response.json(await productRepository.getProducts(parsed.criteria));
   } catch (error) {
-    console.error("GET /api/products failed", error);
+    logServerError("GET /api/products", error);
     return Response.json({ error: "Internal server error" }, { status: 500 });
   }
 }

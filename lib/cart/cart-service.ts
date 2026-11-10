@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@/lib/generated/prisma/client";
+import { logServerError } from "@/lib/log";
 import { addOne, deleteItem, readCart, updateQuantity } from "./cart-store";
 import { cartError, type CartResult, type CartView } from "./types";
 import { parseCartItemId, parseCartProductId, parseCartQuantity } from "./validation";
@@ -16,12 +17,12 @@ export interface CartServiceDeps {
   getSession: () => Promise<OwnerSession | null>;
   getClient: () => PrismaClient;
   /** Server-side logging of unexpected failures (the user only gets a generic message). */
-  logError?: (error: unknown) => void;
+  logError?: (operation: string, error: unknown) => void;
 }
 
 export type MyCart = { signedIn: false } | { signedIn: true; cart: CartView };
 
-export function createCartService({ getSession, getClient, logError = console.error }: CartServiceDeps) {
+export function createCartService({ getSession, getClient, logError = logServerError }: CartServiceDeps) {
   /**
    * THE place where the owner is determined: the id of the verified session of this request,
    * looked up on every call (no module-level or shared "current user").
@@ -32,13 +33,13 @@ export function createCartService({ getSession, getClient, logError = console.er
   }
 
   /** Expected failures are results; unexpected ones (database down, …) are logged and hidden. */
-  async function guarded(operation: (userId: string) => Promise<CartResult>): Promise<CartResult> {
+  async function guarded(name: string, operation: (userId: string) => Promise<CartResult>): Promise<CartResult> {
     try {
       const userId = await ownerId();
       if (userId === null) return cartError("unauthenticated");
       return await operation(userId);
     } catch (error) {
-      logError(error);
+      logError(name, error);
       return cartError("unavailable");
     }
   }
@@ -53,7 +54,7 @@ export function createCartService({ getSession, getClient, logError = console.er
 
     /** Adds one unit of an existing, available product; an existing line is incremented. */
     addProduct(rawProductId: unknown): Promise<CartResult> {
-      return guarded(async (userId) => {
+      return guarded("cart.addProduct", async (userId) => {
         const productId = parseCartProductId(rawProductId);
         if (productId === null) return cartError("invalid_product_id");
         const result = await addOne(getClient(), userId, productId);
@@ -63,7 +64,7 @@ export function createCartService({ getSession, getClient, logError = console.er
 
     /** Sets a validated quantity (1..99, ≤ stock) on one of the owner's own lines. */
     setQuantity(rawItemId: unknown, rawQuantity: unknown): Promise<CartResult> {
-      return guarded(async (userId) => {
+      return guarded("cart.setQuantity", async (userId) => {
         const itemId = parseCartItemId(rawItemId);
         if (itemId === null) return cartError("invalid_item_id");
         const quantity = parseCartQuantity(rawQuantity);
@@ -75,7 +76,7 @@ export function createCartService({ getSession, getClient, logError = console.er
 
     /** Removes one of the owner's own lines. */
     removeItem(rawItemId: unknown): Promise<CartResult> {
-      return guarded(async (userId) => {
+      return guarded("cart.removeItem", async (userId) => {
         const itemId = parseCartItemId(rawItemId);
         if (itemId === null) return cartError("invalid_item_id");
         const result = await deleteItem(getClient(), userId, itemId);

@@ -1,0 +1,84 @@
+# Lint, tests and build of a clean checkout (Lab 10, chapter 5) on Node.js 24 with a throwaway
+# PostgreSQL 17 (never the Production database). Also reused by release.yml as the gate before
+# publishing. The secrets below are fake, CI-only values.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main] # main is checked by release.yml (same job via workflow_call)
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: lint · test · build · smoke · e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: shop_ci
+          POSTGRES_USER: shop
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U shop -d shop_ci"
+          --health-interval 2s --health-timeout 5s --health-retries 20
+    env:
+      # Required already at install/generate/build time (prisma.config.ts, lib/auth-options.ts).
+      DATABASE_URL: postgresql://shop:ci-only-password@localhost:5432/shop_ci
+      TEST_DATABASE_URL: postgresql://shop:ci-only-password@localhost:5432/shop_test
+      BETTER_AUTH_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
+      BETTER_AUTH_URL: http://localhost:3000
+      GITHUB_CLIENT_ID: ci-fake-client-id
+      GITHUB_CLIENT_SECRET: ci-fake-client-secret
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install (lockfile only)
+        run: npm ci
+
+      - name: Generate Prisma Client from the current schema
+        run: npx --no-install prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit + integration tests (separate, recreated test database)
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Migrations on an empty database + catalog seed
+        run: |
+          npx --no-install prisma migrate deploy
+          npx --no-install prisma migrate status
+          SEED_DEMO=false npx --no-install prisma db seed
+          SEED_DEMO=false npx --no-install prisma db seed   # second run: no duplicates
+          npm run db:check
+
+      - name: Start the built app and run the smoke test
+        run: |
+          npm run start -- -p 3000 > next.log 2>&1 &
+          for _ in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3000 && break; sleep 1; done
+          npm run smoke -- http://localhost:3000
+
+      - name: Browser test of the cart (own *_e2e_test database, fake auth values)
+        run: |
+          npx --no-install playwright install --with-deps chromium
+          npm run test:e2e
+
+      - name: Server log on failure
+        if: failure()
+        run: cat next.log || true

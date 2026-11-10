@@ -1,0 +1,63 @@
+# Controlled operator step (Lab 10, chapter 4): apply the committed migration history to the
+# remote Production database with `prisma migrate deploy` — never migrate dev/reset/db push.
+# Started by hand (Actions → "Migrate production database" → Run workflow) after the PR is
+# approved; release.yml refuses to publish while migrations are pending.
+#
+# Secret (GitHub → Settings → Environments → production → Secrets):
+#   MIGRATION_DATABASE_URL  direct (non-pooled) URL of the owner role with DDL rights,
+#                           ?sslmode=verify-full. It is passed as DATABASE_URL to these
+#                           commands only; the app's DATABASE_URL in Vercel is not touched.
+name: Migrate production database
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "production" to apply migrations to the Production database'
+        required: true
+      seed_catalog:
+        description: "Also run the catalog seed (4 categories, 100 products; no demo accounts)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-database
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Connection target (password masked)
+        run: npm run db:check -- --target-only
+
+      - name: Apply migrations
+        run: |
+          npx --no-install prisma migrate deploy
+          npx --no-install prisma migrate status
+
+      - name: Catalog seed (idempotent upsert, keeps accounts, sessions and carts)
+        if: inputs.seed_catalog
+        run: |
+          npx --no-install prisma generate
+          SEED_DEMO=false npx --no-install prisma db seed
+
+      - name: Verify schema and data
+        run: npm run db:check

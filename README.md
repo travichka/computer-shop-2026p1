@@ -1,4 +1,417 @@
-# Computer Shop 2026 — Lab 09
+# Computer Shop 2026 — Lab 10
+
+Autorka: Anastasiia Muzyka
+
+Sklep komputerowy (Programowanie BackEnd, KIS M-7, PK). Lab 06–09: katalog, filtry, PostgreSQL 17 + Prisma 7,
+logowanie GitHub OAuth (Better Auth) i własny koszyk. **Lab 10 wdraża tę aplikację na Vercel pod stabilnym
+adresem HTTPS ze zdalnym PostgreSQL 17 (Neon)**, z kontrolowanymi migracjami, CI w GitHub Actions, publikacją
+konkretnego, sprawdzonego commitu i testem odbiorczym. Opis Lab 09 i Lab 08 — niżej, bez zmian.
+
+> Pola oznaczone ⟨…⟩ uzupełnia się po faktycznym wdrożeniu (adres, SHA, czasy odbioru). Wyniki lokalne
+> i CI w tej sekcji są rzeczywiste; wyników z Production nie wpisuję, zanim odbiór nie zostanie wykonany.
+
+## Lab 10 — podsumowanie oddania
+
+| Pozycja | Wartość |
+| --- | --- |
+| Stabilny adres Production | ⟨`https://computer-shop-2026p1.vercel.app`⟩ |
+| Gałąź Production | `main` (Vercel → Settings → Environments → Production branch) |
+| SHA odebranej wersji | ⟨SHA commitu `main` po scaleniu PR — ten sam, który pokazuje `/api/version` i stopka⟩ |
+| PR `lab10 → main` | ⟨link do PR⟩ (gałąź `lab10` zachowana) |
+| Region aplikacji / bazy | Vercel `fra1` (Frankfurt, `vercel.json`) / Neon `aws-eu-central-1` (Frankfurt) |
+| Wykonane rozszerzenia | CI/CD, test przeglądarkowy koszyka, backup i restore, pomiar wydajności; odrębne środowisko testowe — procedura przygotowana (zob. Rozszerzenia) |
+
+## Lab 10 — wersje środowiska
+
+| Element | Wersja |
+| --- | --- |
+| Node.js | **24.x** (`engines.node`, Vercel; `node-version: 24` w CI), lokalnie 24.22.1, npm 11.19.1 |
+| Next.js / React | 16.3.8 / 19.2.8, backend w **Node.js Runtime** (route handlery mają `runtime = "nodejs"`) |
+| Prisma (`prisma`, `@prisma/client`, `@prisma/adapter-pg`) | 7.10.1, generator `prisma-client` → `lib/generated/prisma` |
+| `pg` | 8.23.1 (pula przez `PrismaPg`) |
+| Better Auth | 1.7.7 |
+| `@vercel/functions` | 3.10.3 (`attachDatabasePool`) |
+| `@playwright/test` | 1.64.1 (Chromium) |
+| PostgreSQL | 17 — lokalnie 17.11 (`postgres:17`), CI `postgres:17`, Production: Neon PostgreSQL 17 ⟨wersja z `npm run db:check`⟩ |
+
+## Lab 10 — plan publikacji
+
+Kolejność każdego wydania: **testy → migracje → publikacja → odbiór**.
+
+| Etap | Jak | Automatyczny czy operator |
+| --- | --- | --- |
+| Testy | `.github/workflows/ci.yml`: `npm ci` → `prisma generate` → `lint` → `test` (unit + integracja na odtwarzanej bazie) → `build` → migracje + seed na pustej bazie CI → `next start` + `npm run smoke` → Playwright | automatycznie przy każdym push/PR |
+| Migracje | `.github/workflows/migrate.yml` (ręczne uruchomienie, wpisanie `production`) albo z terminala operatora, zob. niżej | **operator** — świadoma czynność na wspólnej bazie |
+| Bramka migracji | `release.yml`, job `migrations-applied`: `prisma migrate status` na Production; oczekujące migracje zatrzymują wydanie | automatycznie |
+| Publikacja | `release.yml`, job `deploy` (tylko `main`, `needs` = zielone CI + bramka): `vercel pull` → `vercel build --prod` → `vercel deploy --prebuilt --prod` | automatycznie po zatwierdzeniu PR i scaleniu |
+| Odbiór | automatycznie `npm run smoke -- <domena> --expect-sha <SHA>`; scenariusze z dwoma kontami GitHub — ręcznie (tabela niżej) | automat + operator |
+
+Własne wdrożenia Git integracji Vercel są wyłączone (`vercel.json`: `"git": { "deploymentEnabled": false }`),
+więc **jedyną drogą na Production jest `release.yml`** — zielone GitHub Actions jest tu rzeczywistą zależnością
+publikacji, a nie tylko informacją. Projekt Vercel jest nadal połączony z repozytorium GitHub (podgląd commitów).
+Awaryjnie operator może opublikować sprawdzony commit ręcznie: `npx vercel@65.9.0 deploy --prod` z czystego
+checkoutu tego SHA, a potem zapisać SHA tutaj.
+
+Przebieg PR: `lab10` → PR do `main` → CI zielone → zatwierdzenie → (jeżeli PR zawiera nową migrację: operator
+uruchamia „Migrate production database” na `main` po scaleniu; do tego czasu bramka nie wpuszcza wydania) →
+`release.yml` publikuje wynikowy commit `main` → odbiór → SHA do README. Poprawka po odbiorze = nowy commit/PR
+i ponowny odbiór nowego SHA.
+
+## Lab 10 — środowiska i konfiguracja (bez sekretów)
+
+| | Development | Preview | Production |
+| --- | --- | --- | --- |
+| Adres | `http://localhost:3000` | **wyłączone** (`deploymentEnabled: false`) | stabilna domena HTTPS |
+| Baza | kontener `postgres:17` (`compose.yaml`) | — | Neon, gałąź `main`, baza `shop` |
+| Rola aplikacji | `shop` (lokalna) | — | `shop_app` (tylko DML), endpoint **pooled** |
+| Rola migracji | ta sama | — | właściciel bazy (DDL), endpoint **direct** — tylko w zadaniu migracji |
+| OAuth App GitHub | osobna, callback `http://localhost:3000/api/auth/callback/github` | — | osobna, callback `https://<domena>/api/auth/callback/github` |
+| Sekrety | `.env` (nie w repozytorium) | — | Vercel → Environment Variables → *Production*; GitHub → Environment `production` |
+
+Zmienne (wzór z opisem: `.env.example`; żadna nie ma prefiksu `NEXT_PUBLIC_`):
+
+| Zmienna | Gdzie | Przeznaczenie |
+| --- | --- | --- |
+| `DATABASE_URL` | Vercel Production | `postgresql://shop_app:…@ep-…-pooler.eu-central-1.aws.neon.tech/shop?sslmode=verify-full` — runtime aplikacji i `prisma generate` w buildzie |
+| `DATABASE_POOL_MAX` | Vercel Production (opcjonalnie) | rozmiar puli pg na jedną instancję, domyślnie 5 |
+| `BETTER_AUTH_URL` | Vercel Production | stabilna domena (sam origin, `https://`) |
+| `BETTER_AUTH_SECRET` | Vercel Production | osobny losowy sekret (`openssl rand -base64 32`), inny niż lokalny |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Vercel Production | produkcyjna OAuth App |
+| `MIGRATION_DATABASE_URL` | GitHub Environment `production` (secret) | direct URL właściciela; w zadaniu migracji przekazywany **pod nazwą `DATABASE_URL` tylko temu procesowi** — zmienna aplikacji w Vercel nie jest nadpisywana |
+| `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` | GitHub Actions secrets | publikacja z `release.yml` |
+| `PRODUCTION_URL` | GitHub Environment `production` (variable) | adres do testu odbiorczego |
+
+Zmiana zmiennej w Vercel dotyczy tylko nowych wdrożeń — po zmianie: ponowne uruchomienie `release.yml`
+(Actions → Release → Run workflow) i odbiór.
+
+Zabezpieczenia konfiguracji w kodzie:
+
+- `lib/auth-options.ts`: na Vercel (`VERCEL_ENV` = `production`/`preview`) `BETTER_AUTH_URL` musi być `https://`,
+  nie `localhost` i bez ścieżki — inaczej start kończy się jawnym błędem zamiast cichej awarii logowania.
+  `trustedOrigins` = dokładnie origin `BETTER_AUTH_URL`, bez wzorców typu `*.vercel.app`. Cookie sesji:
+  przy `https` Better Auth ustawia `__Secure-…`, `HttpOnly`, `SameSite=Lax`; cookie cache wyłączony
+  (każde żądanie sprawdza wiersz `Session`).
+- `next.config.ts` nie zawiera sekretów — wpisuje tylko publiczny SHA commitu buildu (`APP_COMMIT_SHA`), widoczny
+  w `/api/version` i w stopce.
+
+## Lab 10 — wdrożenie od zera (procedura operatora)
+
+**1. Repozytorium.** Repozytorium osobiste prywatne (`travichka/computer-shop-2026p1`) — Hobby obsługuje
+prywatne repozytoria kont osobistych, więc nie trzeba niczego upubliczniać. Sekrety nigdy nie były zatwierdzone
+(`git log --all -p | grep -E '^\+(GITHUB_CLIENT_SECRET|BETTER_AUTH_SECRET|DATABASE_URL)='` daje tylko wartości
+przykładowe), `.env*` jest w `.gitignore`.
+
+**2. Baza Neon** (plan Free, bez opłat; limity planu — storage, compute-hours, autosuspend — sprawdzić
+w Neon → Billing w dniu wdrożenia):
+
+1. Projekt z PostgreSQL **17**, region **AWS Europe Central 1 (Frankfurt)**, baza `shop`, właściciel np. `shop_owner`.
+2. Connection string właściciela **direct** (bez `-pooler`) z `sslmode=verify-full` → `MIGRATION_DATABASE_URL`.
+3. Sprawdzenie celu bez ujawniania hasła i wersji serwera:
+   ```bash
+   export DATABASE_URL='<direct URL właściciela>'   # tylko w tej sesji terminala
+   npm run db:check -- --target-only                 # shop_owner@ep-….eu-central-1.aws.neon.tech:5432/shop … REMOTE
+   npm run db:check                                  # wersja serwera, max_connections, TLS on, „_prisma_migrations not found”
+   ```
+4. Migracje i seed katalogu (tylko `migrate deploy`; nigdy `migrate dev`, `migrate reset`, `db push`):
+   ```bash
+   npx --no-install prisma migrate deploy            # 4 migracje Lab 08–09: CHECK, FK, unikalność koszyka, COLLATE "C"
+   npx --no-install prisma migrate status            # Database schema is up to date
+   npx --no-install prisma generate
+   SEED_DEMO=false npx --no-install prisma db seed   # 4 kategorie, 100 produktów; konta, sesje i koszyki nietknięte
+   npm run db:check                                  # tabele, nameSortKey COLLATE C, CHECK, unikalne (cartId, productId)
+   ```
+   To samo robi workflow „Migrate production database” (`confirm = production`, `seed_catalog = true`).
+   Seed to upsert po `id`/`code` w jednej transakcji — ponowne uruchomienie nie duplikuje katalogu.
+   Dla bazy zdalnej seed domyślnie **pomija fikcyjne konta demo** (`prisma/seed-options.ts`).
+5. Rola runtime (Neon SQL Editor, jako właściciel): `CREATE ROLE shop_app WITH LOGIN PASSWORD '…'`, potem
+   `scripts/sql/grant-app-role.sql`. Nadaje `SELECT/INSERT/UPDATE/DELETE` na wszystkich tabelach, `USAGE, SELECT`
+   na sekwencjach, `ALTER DEFAULT PRIVILEGES` dla tabel i sekwencji z **przyszłych** migracji tego właściciela,
+   bez `CREATE` w schemacie i bez dostępu do `_prisma_migrations`. Test: `tests/integration/app-role.test.ts`
+   (rola czyta i zapisuje, sekwencje działają, `CREATE/DROP/ALTER` → `permission denied`, nowa tabela
+   właściciela od razu dostępna).
+6. Connection string `shop_app` z endpointu **pooled** (`-pooler`, PgBouncer w trybie transakcji)
+   z `sslmode=verify-full` → `DATABASE_URL` w Vercel.
+
+**3. Produkcyjna OAuth App GitHub** (osobna od lokalnej): Homepage URL `https://<domena>`, Authorization callback
+URL `https://<domena>/api/auth/callback/github`. Client ID/secret → Vercel Production.
+
+**4. Vercel** (Hobby): Add New Project → import repozytorium → Framework Next.js. Ustawienia wynikają z
+`vercel.json` (Install `npm ci`, Build `npm run build`, region `fra1`) i `engines.node = 24.x`; w Settings →
+Build and Deployment → Node.js Version: 24.x. Production branch: `main`. Zmienne z tabeli wyżej, tylko w
+środowisku *Production*. `npx vercel link` lokalnie → `.vercel/project.json` (w `.gitignore`) daje
+`orgId`/`projectId` → sekrety GitHub. Token: vercel.com → Account Settings → Tokens.
+
+**5. GitHub**: Settings → Environments → `production` (secret `MIGRATION_DATABASE_URL`, variable
+`PRODUCTION_URL`); Settings → Secrets → Actions (`VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`).
+
+**6. Wydanie**: PR `lab10 → main`, scalenie → `release.yml` → odbiór.
+
+### Build a migracje — szczegóły
+
+- **Generowanie klienta**: jawnie w buildzie — `"build": "prisma generate && next build"`, bez `postinstall`
+  (nie dubluję mechanizmów). Klient powstaje zawsze z bieżącego `schema.prisma` w tym samym kroku co kompilacja,
+  więc ani cache Vercel, ani artefakty lokalnego komputera nie mogą podać starego klienta (`lib/generated/`
+  jest w `.gitignore`). `postinstall` odrzuciłam, bo `prisma.config.ts` wymaga `DATABASE_URL` już przy
+  `generate` — `npm ci` w czystym checkoutcie bez zmiennych by się wysypał. W CI `prisma generate` jest osobnym
+  krokiem przed lint/test (Listing 5.1); build generuje ponownie, co jest tanie i deterministyczne.
+- **Czysty checkout sprawdzony** (`git clone` gałęzi `lab10` do pustego katalogu, bez `.env`, `node_modules`
+  i `lib/generated`): `npm ci` → `prisma generate` → `lint` → `test` (27 plików, 392 testy) → `build` — wszystko OK
+  (2026-11-10).
+- **Dlaczego `migrate deploy` nie generuje Prisma Client**: aplikuje wyłącznie zatwierdzone pliki SQL z
+  `prisma/migrations`, których nie ma jeszcze w `_prisma_migrations` — to operacja na **bazie**. Klient jest
+  artefaktem **kodu** buildu (`prisma generate`); w Prisma 7 komendy migracji nie uruchamiają już `generate`
+  ani seeda automatycznie. Operator migracji nie musi nawet budować aplikacji.
+- **Dlaczego `migrate deploy` nie wykrywa pełnego driftu**: porównuje tylko listę (nazwy i sumy kontrolne)
+  migracji z tabelą `_prisma_migrations`; nie introspektuje rzeczywistego schematu i nie używa shadow database.
+  Ręczna zmiana w bazie (usunięty indeks, zmieniona kolacja, brakujący CHECK) przejdzie niezauważona. Dlatego
+  `npm run db:check` sprawdza jawnie kolację `C`, liczbę CHECK i unikalność koszyka, a migracja `…_auth_cart`
+  sama przerywa się, gdy brakuje CHECK ilości. Pełne porównanie: `prisma migrate diff` względem bazy.
+- **Nieudana migracja**: `migrate deploy` zatrzymuje się na pierwszym błędzie, wiersz w `_prisma_migrations`
+  zostaje oznaczony jako nieukończony, bramka w `release.yml` nie publikuje. Diagnoza z logu migracji, poprawka
+  danych/SQL nową migracją albo `prisma migrate resolve` po ręcznym naprawieniu — **nigdy reset wspólnej bazy**.
+
+### Pula połączeń, TLS i region
+
+- `lib/prisma-client.ts`: pula `pg` na proces — `max = 5` (`DATABASE_POOL_MAX`, 1–50), `idleTimeoutMillis = 5 s`,
+  `connectionTimeoutMillis = 10 s` (budzenie uśpionej bazy), `application_name = computer-shop`.
+  `lib/db.ts`: jedna pula i jeden `PrismaClient` na proces (`globalThis`), `PrismaPg(pool)`.
+- Współdzielony `PrismaClient` działa **w obrębie jednej instancji**. Vercel może uruchomić wiele instancji, każda
+  z własną pulą, więc obciążenie bazy to *liczba instancji × max*. Dlatego aplikacja łączy się z endpointem
+  **pooled** Neon (PgBouncer, tryb transakcji — tysiące połączeń klienckich na niewielką liczbę połączeń
+  serwera), a mała pula ogranicza pojedynczą instancję. `PrismaPg` nie nazywa prepared statements, więc tryb
+  transakcji PgBouncera jest zgodny. Migracje idą przez endpoint **direct** (blokady doradcze `migrate`).
+- **Fluid Compute** (domyślny w Vercel): `attachDatabasePool(pool)` z `@vercel/functions` pozwala Vercel zamknąć
+  bezczynne połączenia przed uśpieniem instancji, więc nie „wiszą” po stronie bazy. Poza Vercel funkcja nic nie
+  robi (sprawdza `VERCEL_URL`/`VERCEL_REGION`).
+- **TLS**: `sslmode=verify-full` w connection stringu — szyfrowanie i weryfikacja certyfikatu oraz nazwy hosta
+  (CA Neon jest w magazynie Node). W kodzie nie ma `ssl: { rejectUnauthorized: false }`; test
+  `tests/pool-config.test.ts` pilnuje, że konfiguracja puli nie nadpisuje `ssl`. `npm run db:check` wypisuje
+  `TLS on/off` z `pg_stat_ssl`.
+- **Regiony**: funkcje `fra1`, baza `aws-eu-central-1` — oba Frankfurt, opóźnienie zapytania rzędu
+  pojedynczych ms zamiast ~100 ms przy domyślnym `iad1`.
+
+## Lab 10 — testy i CI
+
+| Polecenie | Co sprawdza |
+| --- | --- |
+| `npm run lint` | ESLint (Next.js 16 nie uruchamia go w `next build`) |
+| `npm run test` | Vitest: 15 plików unit + 12 plików integracyjnych na **odrębnej, odtwarzanej** bazie `*_test` zmigrowanej przez `migrate deploy` — katalog, walidacja koszyka, autoryzacja i izolacja A/B, sesje, rola runtime, migracje |
+| `npm run test:e2e` | Playwright: koszyk w przeglądarce na zbudowanej aplikacji i bazie `shop_e2e_test` |
+| `npm run smoke -- <url> [--expect-sha <sha>]` | anonimowy test odbiorczy działającej aplikacji (lokalnie, CI, Production) |
+| `npm run db:check` | cel połączenia (bez hasła), wersja serwera, `max_connections`, tabele, kolacja, CHECK |
+
+Nowe testy Lab 10: `pool-config`, `log`, `auth-options` (reguły adresu na Vercel, `trustedOrigins`),
+`seed-options`, `db-target`, `version`, `integration/app-role`, `e2e/cart.spec.ts`.
+
+Wynik lokalny (2026-11-10, Node 24.22.1, PostgreSQL 17.11): `npm run lint` — 0 problemów; `npm run test` —
+**27 plików, 392 testy, wszystkie zaliczone**; `npm run build` — OK; `npm run test:e2e` — **4/4**;
+`npm run smoke -- http://localhost:3000 --expect-sha <HEAD>` — **15/15**. Workflowy sprawdzone `actionlint`
+1.7.7 — bez uwag. ⟨link do zielonego przebiegu CI na GitHub⟩
+
+## Lab 10 — test odbiorczy na Production
+
+Automatyczna część (`npm run smoke -- https://<domena> --expect-sha <SHA>`, uruchamiana też przez `release.yml`):
+
+| Sprawdzenie | Wynik lokalny 2026-11-10 | Production ⟨data, godzina⟩ |
+| --- | --- | --- |
+| `/api/version`: SHA = odbierany commit, Node 24 | PASS | ⟨⟩ |
+| Strona główna bez szczegółów serwera | PASS | ⟨⟩ |
+| 100 produktów, 4 kategorie, unikalne id i kody (brak duplikatów), ceny w całych groszach | PASS | ⟨⟩ |
+| 8 kombinacji filtrów/sortowania = implementacja referencyjna Lab 06 (`queryProducts`) | PASS | ⟨⟩ |
+| Błędny filtr → 400 bez szczegółów | PASS | ⟨⟩ |
+| Szczegóły produktu, cena w złotych (`925,00 zł`) | PASS | ⟨⟩ |
+| `/product-list/999999`, `abc`, `0` → własny widok 404 | PASS | ⟨⟩ |
+| Obrazy produktów → 200 `image/*` | PASS | ⟨⟩ |
+| Nieznany URL → własny 404 z linkiem powrotu | PASS | ⟨⟩ |
+| `/basket`, `/order-history` bez sesji → zaproszenie do logowania, bez danych | PASS | ⟨⟩ |
+| Brak cookie / podrobione cookie → brak sesji | PASS | ⟨⟩ |
+| Start OAuth: `redirect_uri = <domena>/api/auth/callback/github`, tylko `read:user user:email` | PASS | ⟨⟩ |
+| `callbackURL` w obcej domenie → 403 | PASS | ⟨⟩ |
+| Żądanie z cookie z obcego `Origin` → 403 (CSRF) | PASS | ⟨⟩ |
+| Callback z podrobionym `state` → przekierowanie, bez cookie sesji | PASS | ⟨⟩ |
+
+Część ręczna (Tabela 7.1) — dwa konta GitHub, dwa czyste profile przeglądarki; dla zapisu sprawdzam też bazę
+(Neon SQL Editor: `SELECT ci.id, ci."productId", ci.quantity FROM "CartItem" ci JOIN "Cart" c ON c.id = ci."cartId" JOIN "User" u ON u.id = c."userId" WHERE u.email = '<email>'`).
+Tokenów, cookies ani danych drugiego konta tu nie zapisuję.
+
+| Scenariusz | Kroki | Oczekiwane | Wynik ⟨czas⟩ | Dowód |
+| --- | --- | --- | --- | --- |
+| Katalog i szczegóły | `/product-list`, filtry, sortowania, `/product-list/1`, `/product-list/999999` | 100 produktów, ceny w zł, 404 dla braku | ⟨⟩ | smoke + zrzut |
+| Logowanie i sesja | „Zaloguj przez GitHub” w czystym profilu | powrót na stabilną domenę, F5 nie wylogowuje | ⟨⟩ | pasek adresu, `/account` |
+| Wylogowanie | wyloguj, potem w DevTools przywróć stare cookie i spróbuj dodać produkt | „Zaloguj się, aby zmieniać koszyk.”, brak zmian w bazie | ⟨⟩ | zapytanie SQL |
+| Trwałość koszyka | dodaj, zmień ilość, usuń; wyloguj i zaloguj; po nowym wdrożeniu odśwież | koszyk zachowany | ⟨⟩ | SQL przed/po |
+| Izolacja A/B | B w DevTools podmienia `itemId` w formularzu na pozycję A | „Nie znaleziono takiej pozycji…”, pozycja A bez zmian | ⟨⟩ | SQL |
+| Walidacja | ilość 0/100 (po usunięciu `min`/`max`), więcej niż stan, akcja bez sesji | odmowa; suma liczona na serwerze | ⟨⟩ | komunikat + SQL |
+| Ponowna publikacja | drobna zmiana UI → PR → nowy SHA | katalog, logowanie, zapis działają; nadal 100 produktów | ⟨⟩ | smoke `--expect-sha` |
+| Nowy użytkownik | pierwsze logowanie drugiego konta | pusty koszyk, suma 0,00 zł, brak błędu | ⟨⟩ | zrzut |
+| Nieznany URL i historia | `/xyz`, `/order-history` | własny 404; historia własnych zamówień (rozszerzenie Lab 09) | ⟨⟩ | zrzut |
+
+Te same scenariusze koszyka są zautomatyzowane lokalnie w `e2e/cart.spec.ts` i w testach integracyjnych.
+
+## Lab 10 — diagnostyka
+
+**Gdzie szukać:** logi budowania — Vercel → Deployments → wdrożenie → *Build Logs* (oraz log joba `deploy`
+w GitHub Actions); logi funkcji — Vercel → projekt → *Logs* (filtr: Production, poziom Error, ścieżka);
+migracje — log workflow „Migrate production database”.
+
+**Format logów:** `lib/log.ts` → jedna linia `[operacja] failed {"name","code","message"}`, np.
+`[cart.addProduct] failed {"name":"Error","code":"53300",…}`. `redact()` usuwa dane logowania z connection
+stringów, `password=`, cookies `better-auth.*`, `Bearer` i tokeny GitHub (`tests/log.test.ts`). Użytkownik
+dostaje tylko ogólny komunikat („Nie udało się zapisać zmian…”, widok błędu z kodem `digest`), bez SQL
+i szczegółów połączenia — sprawdza to smoke (`assertNoLeak`) i test „unreachable database”.
+
+**Limity i liczba połączeń:** `npm run db:check` (z `DATABASE_URL` właściciela) wypisuje `max_connections` i liczbę
+otwartych połączeń; w Neon → Monitoring: *Connections*, *Pooler client connections*; w Vercel → Usage: function
+invocations, duration, Fluid CPU. Objawy wyczerpania połączeń: błędy `53300 too_many_connections` /
+`remaining connection slots are reserved` albo `timeout exceeded when trying to connect` (pula czeka dłużej niż
+10 s) w logach funkcji. Kontrola: `SELECT usename, application_name, state, count(*) FROM pg_stat_activity
+GROUP BY 1,2,3` — połączenia aplikacji mają `application_name = computer-shop`. Uśpiona baza Neon daje
+jednorazowo wolne pierwsze żądanie (zimny start), nie błąd.
+
+**Kontrolowany eksperyment (lokalnie) — błędny adres powrotu OAuth:**
+
+- *Objaw*: aplikacja uruchomiona na innym porcie niż `BETTER_AUTH_URL` (`next start -p 3100`, w `.env`
+  `http://localhost:3000`). Strona i katalog działają, ale smoke test:
+  `FAIL GitHub OAuth starts with a callback on this stable domain — redirect_uri=http://localhost:3000/api/auth/callback/github (BETTER_AUTH_URL wrong?)`
+  (13 testów, 1 niezaliczony). W przeglądarce GitHub odesłałby użytkownika na inny adres — dokładnie ten błąd,
+  który pojawia się po przeniesieniu do chmury z pozostawionym `BETTER_AUTH_URL=http://localhost:3000`.
+- *Przyczyna*: Better Auth buduje `redirect_uri` z `BETTER_AUTH_URL`, nie z adresu żądania; OAuth App GitHub
+  przyjmuje tylko zarejestrowany callback.
+- *Zmiana*: aplikacja uruchomiona pod adresem zgodnym z `BETTER_AUTH_URL` (na Production: `BETTER_AUTH_URL` =
+  stabilna domena + nowe wdrożenie, bo zmienne dotyczą tylko nowych wdrożeń). Dodatkowo `readAuthEnv` na Vercel
+  odrzuca adres `localhost`/`http`/ze ścieżką już przy starcie.
+- *Ponowny test*: `npm run smoke -- http://localhost:3000` → **14/14 PASS** (`redirect_uri=http://localhost:3000/api/auth/callback/github`);
+  testy jednostkowe `auth-options` dla reguł na Vercel — zaliczone.
+
+## Lab 10 — powrót do działającej wersji
+
+- **Zasada**: `main` = to, co jest na Production. Podstawowa ścieżka: `git revert <SHA>` → PR → CI → `release.yml`
+  publikuje commit z poprzednim kodem → smoke `--expect-sha` → nowy SHA w README.
+- **Awaryjnie** (gdy liczy się czas): Vercel → Deployments → poprzednie wdrożenie Production → *Instant
+  Rollback* (bez budowania; na Hobby tylko do bezpośrednio poprzedniego wdrożenia). Po rollbacku Vercel nie
+  przypina automatycznie domeny do nowych wdrożeń — po naprawie trzeba *Promote*/„Undo Rollback”. Potem i tak
+  revert w `main`, żeby kod i Production się zgadzały.
+- **Rollback kodu nie cofa**: migracji (Prisma nie ma migracji „w dół”, `_prisma_migrations` zostaje), danych
+  zapisanych przez nową wersję ani konfiguracji dostawcy (zmienne Vercel, ustawienia Neon, OAuth App). Dlatego
+  migracje mają być zgodne wstecz (najpierw rozszerzenie schematu, usuwanie kolumn dopiero w kolejnym wydaniu),
+  a przed zmianą destrukcyjną: sprawdzona kopia (`npm run db:backup-restore`, niżej) + plan odtworzenia
+  (Neon: także odtworzenie gałęzi z punktu w czasie w ramach okna historii planu).
+- **Ćwiczenie odbiorcze** (bez migracji): drobna zmiana interfejsu (np. tekst w stopce) → wydanie SHA₂ → koszyk
+  konta A sprawdzony → revert → wydanie SHA₃ (kod jak SHA₁) → stopka/`/api/version` pokazują SHA₃, koszyk A
+  bez zmian (SQL przed/po). ⟨SHA₁, SHA₂, SHA₃, czasy⟩
+
+## Lab 10 — rozszerzenia
+
+| Rozszerzenie | Stan | Efekt i test | Koszt utrzymania |
+| --- | --- | --- | --- |
+| **Automatyczne CI/CD** | zrobione (kod); dowód na GitHub ⟨link⟩ | `release.yml`: `deploy` ma `needs` na CI i bramkę migracji, Git-deploy Vercel wyłączony. Baza CI: kontener `postgres:17` w jobie (nigdy Production). Dowód zatrzymania: commit z celowo błędnym testem na `main` → job `checks` czerwony, `migrations-applied` i `deploy` *skipped*, na Vercel brak nowego wdrożenia, `/api/version` pokazuje stary SHA; revert → zielone wydanie. ⟨linki do obu przebiegów⟩ | ~6–8 min Actions na wydanie (darmowe minuty), utrzymanie tokenu Vercel i wersji CLI (`vercel@65.9.0`) |
+| **Test przeglądarkowy koszyka** | zrobione, 4/4 lokalnie, krok w CI | `e2e/cart.spec.ts` (Playwright, Chromium): (1) bez sesji `/basket` prosi o logowanie, „Dodaj do koszyka” → serwer odmawia, 0 wierszy; (2) dodanie ×2, zmiana ilości na 3, odmowa 100 (po usunięciu `min/max` w DOM — waliduje serwer), odmowa ponad stan, usunięcie → pusty koszyk 0,00 zł, każdy krok sprawdzony w bazie; (3) wylogowanie usuwa sesję, stare cookie nie działa, nowe logowanie przywraca koszyk; (4) B z podmienionym `itemId` A → „Nie znaleziono…”, pozycja A bez zmian. Sesja tworzona w procesie testu (dostęp do bazy testowej + sekret testowy, `testUtils`) — **aplikacja nie ma żadnej trasy ani flagi obejścia OAuth**. Baza `shop_e2e_test` odtwarzana przy każdym uruchomieniu | ~10 s lokalnie, ~1 min w CI (instalacja Chromium); selektory po rolach/etykietach — zmiana tekstów UI wymaga zmiany testu |
+| **Backup i restore** | zrobione lokalnie; dla Production ⟨wynik⟩ | `npm run db:backup-restore`: `pg_dump` 17 (kontener `postgres:17`, format custom, `--no-owner --no-privileges`) → nowa baza `*_test` → `pg_restore --exit-on-error` → porównanie wszystkich 11 tabel (liczba wierszy + md5 wszystkich wierszy), relacje bez sierot, CHECK/FK/kolacja jak w źródle. Odmawia przywracania do bazy bez sufiksu `_test` lub do źródła. Wynik lokalny: 0,4 s dump, 0,4 s restore, 11/11 tabel identycznych (Product 100, CartItem 3, Order 6…), 0 sierot, CHECK 14, FK 9, `COLLATE C` — „Restore verified”. Dla Production: `BACKUP_SOURCE_URL=<direct URL, tylko odczyt> RESTORE_DATABASE_URL=postgresql://…localhost…/shop_restore_test npm run db:backup-restore` — Production tylko czytany | Docker do `pg_dump`; plik w `backups/` (w `.gitignore`, zawiera dane osobowe — nie publikować) |
+| **Pomiar wydajności** | zrobione lokalnie | `npm run perf -- <url>` — tabela niżej | brak (skrypt ręczny) |
+| **Odrębne środowisko testowe** | przygotowane, ⟨do wykonania⟩ | Na Hobby (bez custom environments) najprościej: **drugi projekt Vercel** `computer-shop-staging` z tego samego repozytorium (Git-deploy też wyłączony), **gałąź Neon `staging`** (osobny endpoint i role), **osobna OAuth App** z callbackiem na domenę staging, osobny `BETTER_AUTH_SECRET`. Kod to obsługuje bez zmian (konfiguracja tylko ze zmiennych; reguły adresu dla `VERCEL_ENV`). Dowód izolacji: zapis do koszyka na staging, `npm run db:check` na obu bazach — liczby `CartItem` Production bez zmian | drugi zestaw sekretów i OAuth App do rotacji; gałąź Neon zużywa limit planu |
+
+**Pomiar wydajności** — lokalnie, 2026-11-10: `next start` (build produkcyjny) + PostgreSQL 17.11 w Dockerze
+na tym samym MacBooku, Node 24.22.1, dane testowe (100 produktów), 300 żądań na rundę rozdzielonych po kolei
+między `/api/products?sort=name`, `/api/products?type=gpu&stock=available&sort=newest`, `/product-list/1`;
+połączenia aplikacji liczone z `pg_stat_activity` co 25 ms; `max_connections = 100`.
+
+Pierwsze żądanie po starcie procesu (pusta pula, nieskompilowane ścieżki): 132,7 ms / 14,5 ms / 55,7 ms;
+kolejne żądania — jednocyfrowe ms.
+
+| pula `max` | współbieżność | p50 ms | p95 ms | max ms | żądań/s | błędy | połączenia aplikacji (max) |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 5 | 1 | 3,1 | 6,7 | 9,7 | 269 | 0 | 2 |
+| 5 | 10 | 11,2 | 48,1 | 81,6 | 467 | 0 | 5 |
+| 5 | 50 | 83,8 | 190,1 | 287,0 | 513 | 0 | 5 |
+| 1 | 10 | 26,9 | 37,7 | 76,1 | 350 | 0 | 1 |
+| 1 | 50 | 120,9 | 153,4 | 181,3 | 409 | 0 | 1 |
+
+Wnioski: pula **nie przekracza `max`** nawet przy 50 równoczesnych żądaniach — nadmiar czeka w kolejce puli,
+a nie otwiera nowych połączeń do bazy (to chroni limit bazy przy wielu instancjach). Przy `max = 1` przepustowość
+spada o ~20%, a mediana rośnie — dla tej aplikacji 5 połączeń na instancję wystarcza. Pomiar lokalny nie
+obejmuje opóźnienia sieci ani zimnego startu funkcji Vercel i budzenia bazy Neon; na Production obciążeniowo
+nie testuję wspólnej bazy — ewentualny pomiar tylko na środowisku testowym.
+
+## Lab 10 — odpowiedzi na pytania
+
+**Dlaczego build i migracja to różne operacje?** Build zamienia commit w niezmienny artefakt: jest powtarzalny,
+można go uruchomić wiele razy (CI, ponowienie, Preview) i nie zmienia danych. Migracja jednorazowo zmienia
+**wspólny stan** bazy, wymaga praw DDL, zależy od kolejności i nie da się jej „odbudować”. Gdyby migrował każdy
+build, każde budowanie (także z niezaufanego PR) dostawałoby hasło właściciela bazy Production, nieudany build po
+udanej migracji zostawiałby nowy schemat ze starym kodem, a ponowienia uruchamiałyby DDL bez kontroli. Dlatego
+u mnie build (`release.yml` / `vercel build`) nie ma `MIGRATION_DATABASE_URL`, a migracja jest osobnym etapem
+operatora.
+
+**Co zmienia nowy deploy w stosunku do istniejących danych?** Nic w bazie. Powstaje nowe, niezmienne wdrożenie
+z nowym kodem i migawką zmiennych środowiska, a domena zaczyna wskazywać na nie. Konta, sesje, koszyki
+i katalog zostają (seed nie jest częścią deployu, więc nie ma duplikatów). Zalogowani użytkownicy pozostają
+zalogowani, dopóki `BETTER_AUTH_SECRET` i baza się nie zmieniają — zmiana sekretu unieważniłaby wszystkie
+cookies. Schemat zmienia wyłącznie `migrate deploy`.
+
+**Dlaczego wspólna baza Preview i Production może uszkodzić wydanie?** Preview uruchamia kod z niescalonych,
+niezatwierdzonych gałęzi: mógłby zapisywać i kasować prawdziwe koszyki, dodać dane testowe do katalogu albo
+zastosować migrację, której kod Production nie zna (schemat „z przyszłości”, kolizja nazw migracji). Do tego
+podgląd z cudzego PR dostałby sekrety bazy produkcyjnej, a sesje i cookies obu środowisk mieszałyby się w jednej
+tabeli. Dlatego Preview jest wyłączone, a środowisko testowe ma mieć osobną bazę i sekrety.
+
+**Dlaczego rollback kodu nie przywraca poprzedniego schematu?** Rollback Vercel tylko przepina domenę na
+starsze, gotowe wdrożenie — baza jest zewnętrznym, wspólnym stanem i nie jest częścią wdrożenia. Prisma stosuje
+migracje tylko „w przód” (brak migracji w dół), a dane zapisane w nowych kolumnach i tak by zniknęły przy cofnięciu
+schematu. Stary kod musi więc umieć pracować z nowym schematem (migracje zgodne wstecz), a cofnięcie schematu to
+osobna, zaplanowana migracja albo odtworzenie z kopii.
+
+**Jak testy wykrywają utratę autoryzacji po przeniesieniu do chmury?** (1) `readAuthEnv` na Vercel odrzuca
+`localhost`, `http` i ścieżkę w `BETTER_AUTH_URL` — błędna konfiguracja kończy się błędem startu, nie cichą awarią;
+testy jednostkowe to sprawdzają. (2) Smoke na Production weryfikuje, że `redirect_uri` wskazuje stabilną domenę
+(eksperyment wyżej pokazał, że łapie błędny adres), że obcy `callbackURL` i obcy `Origin` dostają 403, a podrobione
+cookie nie daje sesji. (3) Testy integracyjne i e2e sprawdzają, że każda operacja koszyka bez sesji kończy się
+odmową, właściciel pochodzi z sesji, B nie zmienia pozycji A, a stare cookie po wylogowaniu nie działa — gdyby
+w chmurze np. zabrakło sprawdzenia sesji albo zapis przechodził anonimowo, te testy by padły. (4) Ręczny odbiór
+z dwoma kontami w czystych profilach potwierdza pełny przepływ GitHub, którego nie da się zautomatyzować bez
+obejścia OAuth.
+
+## Lab 10 — ograniczenia demonstracji
+
+- Neon Free usypia bazę po kilku minutach bezczynności — pierwsze żądanie po przerwie jest wolniejsze (zimny
+  start bazy + funkcji); limity planu (storage, compute-hours) mogą zatrzymać bazę do końca miesiąca.
+- Preview wyłączone; środowisko testowe w chmurze opisane, ⟨nie / tak⟩ uruchomione.
+- Składanie zamówień (checkout) nie jest wdrożone — przycisk „Złóż zamówienie” jest nieaktywny; historia zamówień
+  (rozszerzenie Lab 09) pokazuje zamówienia przypisane do konta (na Production nie ma fikcyjnych zamówień demo,
+  bo seed bazy zdalnej ich nie dodaje).
+- Better Auth rate limit działa w pamięci instancji — na wielu instancjach Vercel limit jest per instancja.
+- Ręczna część odbioru wymaga dwóch kont GitHub; nie ma automatycznego logowania na Production (celowo — brak
+  obejścia OAuth).
+
+## Lab 10 — nowe i zmienione pliki
+
+| Plik | Rola |
+| --- | --- |
+| `vercel.json` | `npm ci`, `npm run build`, region `fra1`, wyłączone Git-deploye |
+| `package.json` | `engines.node = 24.x`, `build = prisma generate && next build`, skrypty `db:check`, `db:status`, `db:backup-restore`, `smoke`, `perf`, `test:e2e` |
+| `.github/workflows/ci.yml`, `release.yml`, `migrate.yml` | CI, wydanie zależne od testów i migracji, ręczne migracje |
+| `lib/prisma-client.ts`, `lib/db.ts` | pula na instancję, `attachDatabasePool`, `application_name` |
+| `lib/auth-options.ts` | reguły `BETTER_AUTH_URL` na Vercel, `trustedOrigins` |
+| `lib/log.ts` | logi bez sekretów |
+| `lib/version.ts`, `app/api/version/route.ts`, `next.config.ts`, `components/SiteFooter.tsx` | SHA wdrożonego commitu |
+| `prisma/seed-options.ts`, `prisma/seed.ts` | seed bazy zdalnej tylko z katalogiem |
+| `scripts/db-check.ts`, `scripts/lib/db-target.ts` | weryfikacja bazy i celu połączenia bez hasła |
+| `scripts/sql/grant-app-role.sql` | prawa roli runtime |
+| `scripts/smoke.ts`, `scripts/perf.ts`, `scripts/backup-restore.ts` | odbiór, pomiar, kopia |
+| `e2e/*`, `playwright.config.ts` | test przeglądarkowy koszyka |
+
+## Lab 10 — źródła
+
+Vercel: Git integrations i `git.deploymentEnabled`, Plans (Hobby), Environment variables, Node.js versions,
+Regions, Fluid Compute i `attachDatabasePool`, GitHub Actions z `vercel build --prebuilt`, Logs, Instant
+Rollback. Prisma 7: Deploying database changes (`migrate deploy`), Deploy to Vercel, connection pooling,
+`@prisma/adapter-pg`. Neon: connection pooling (PgBouncer), regions, roles, connect securely (`sslmode=verify-full`).
+PostgreSQL 17: `GRANT`, `ALTER DEFAULT PRIVILEGES`, `pg_dump`/`pg_restore`, `pg_stat_activity`. Better Auth:
+GitHub provider, options (`baseURL`, `trustedOrigins`), Next.js integration, `testUtils`. GitHub: OAuth Apps,
+Actions for Node.js, service containers, environments. Playwright: fixtures, `webServer`, `globalSetup`.
+
+---
+
+# Lab 09 — logowanie i koszyk
 
 Autorka: Anastasiia Muzyka
 
