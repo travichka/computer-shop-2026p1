@@ -53,3 +53,4 @@ next-env.d.ts
 # Playwright (Lab 10 browser test)
 /test-results/
 /playwright-report/
+.neon
