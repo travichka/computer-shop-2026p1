@@ -198,11 +198,13 @@ only** (untick Preview and Development), **Save**.
 | --- | --- |
 | `DATABASE_URL` | the `shop_app` pooled URL from step 1.6.5 |
 | `BETTER_AUTH_URL` | `<DOMAIN>` (e.g. `https://computer-shop-2026p1.vercel.app`) |
-| `BETTER_AUTH_SECRET` | a **new** value from `openssl rand -base64 32` (not your local one) |
+| `BETTER_AUTH_SECRET` | the **output** of `openssl rand -base64 32` — 44 characters ending with `=`, not the command itself, not your local one |
 | `GITHUB_CLIENT_ID` | Client ID from Part 3 |
 | `GITHUB_CLIENT_SECRET` | client secret from Part 3 |
 
-Mark `DATABASE_URL`, `BETTER_AUTH_SECRET` and `GITHUB_CLIENT_SECRET` as **Sensitive** if the option is shown.
+Paste values **without quotes and without spaces** around them. Do **not** tick **Sensitive**: the Release
+workflow builds with `vercel pull` + `vercel build` in GitHub Actions, and the CLI cannot download the values of
+Sensitive variables, so the build would not see them. The values are still encrypted and server-only.
 Do **not** add a `NEXT_PUBLIC_` prefix to anything.
 
 ### 4.2 Project settings
@@ -239,7 +241,8 @@ Repository https://github.com/travichka/computer-shop-2026p1 → **Settings**.
 **Settings → Environments → New environment** → name `production` → **Configure environment**:
 
 - **Environment secrets → Add environment secret:** `MIGRATION_DATABASE_URL` = the direct owner URL from step 1.7.
-- **Environment variables → Add environment variable:** `PRODUCTION_URL` = `<DOMAIN>`.
+- **Environment variables → Add environment variable:** `PRODUCTION_URL` = `<DOMAIN>` **including `https://`**,
+  e.g. `https://computer-shop-2026p1.vercel.app`.
 - Optional: *Deployment branches and tags* → **Selected branches** → add `main`.
 
 If **Environments** is missing in Settings (GitHub Free does not offer environments for **private** repositories;
@@ -296,7 +299,9 @@ If you prefer not to use the workflow: run `npx --yes vercel@65.9.0 deploy --pro
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Build: `Cannot resolve environment variable: DATABASE_URL` | variable missing for Production | Part 4.1, then rerun Release |
-| Build/log: `Missing auth environment variables: …` | one of the auth variables missing | Part 4.1 |
+| Build/log: `Missing auth environment variables: …` | variable missing, or marked **Sensitive** (CLI gets it empty) | Part 4.1: re-create it without Sensitive |
+| Build: `BETTER_AUTH_SECRET must have at least 32 characters` | the command was pasted instead of its output, or a short value | Part 4.1: paste the 44-character output |
+| Annotation: `Environment URL '…vercel.app' is not a valid http(s) URL` | `PRODUCTION_URL` without `https://` | Part 5.1: `https://computer-shop-2026p1.vercel.app` |
 | Log: `BETTER_AUTH_URL must be the public https:// domain on Vercel` | `localhost`/`http`/path in it | set exactly `<DOMAIN>`, rerun Release |
 | GitHub: "The redirect_uri is not associated with this application" | callback in OAuth App ≠ `<DOMAIN>/api/auth/callback/github` | fix the OAuth App |
 | Pages show "Nie udało się wczytać…", log `relation "Product" does not exist` | migrations not applied | Part 1.3–1.4 |
