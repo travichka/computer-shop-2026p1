@@ -69,42 +69,14 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Pull Production settings and variables
-        run: npx --yes "$VERCEL_CLI" pull --yes --environment=production --token="$VERCEL_TOKEN"
-
-      - name: Check pulled variables (lengths only, never values)
-        run: |
-          # shellcheck disable=SC2016 # ${...} below is JavaScript, not shell
-          node -e '
-            const fs = require("node:fs");
-            const file = ".vercel/.env.production.local";
-            const env = {};
-            for (const line of fs.readFileSync(file, "utf8").split("\n")) {
-              const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.trim());
-              if (m) env[m[1]] = m[2].replace(/^"(.*)"$/, "$1").replace(/\\n/g, "\n");
-            }
-            let ok = true;
-            const need = { DATABASE_URL: 20, BETTER_AUTH_URL: 12, BETTER_AUTH_SECRET: 32, GITHUB_CLIENT_ID: 10, GITHUB_CLIENT_SECRET: 20 };
-            for (const [name, min] of Object.entries(need)) {
-              const value = (env[name] ?? "").trim();
-              const state = !(name in env) ? "MISSING" : value.length === 0 ? "EMPTY (Sensitive?)" : value.length < min ? `TOO SHORT (< ${min})` : "ok";
-              if (state !== "ok") ok = false;
-              console.log(`${name.padEnd(22)} ${String(value.length).padStart(4)} chars  ${state}`);
-            }
-            const url = (env.BETTER_AUTH_URL ?? "").trim();
-            console.log(`BETTER_AUTH_URL origin: ${URL.canParse(url) ? new URL(url).origin : "(not a URL)"}`);
-            if (!ok) {
-              console.log("::error::Fix the Production variables in Vercel (Settings → Environment Variables), then re-run.");
-              process.exit(1);
-            }'
-
-      - name: Build exactly this commit
-        run: npx --yes "$VERCEL_CLI" build --prod --token="$VERCEL_TOKEN"
-
-      - name: Publish
+      # Vercel builds the uploaded checkout of exactly this commit on its own builders, so the
+      # Production variables can stay "Sensitive" (the CLI never sees their values; `vercel pull`
+      # would only get placeholders). The commit SHA is passed in for /api/version.
+      - name: Build on Vercel and publish exactly this commit
         id: publish
         run: |
-          url=$(npx --yes "$VERCEL_CLI" deploy --prebuilt --prod --token="$VERCEL_TOKEN")
+          url=$(npx --yes "$VERCEL_CLI" deploy --prod --yes \
+            --build-env APP_COMMIT_SHA="$GITHUB_SHA" --token="$VERCEL_TOKEN")
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
       - name: Acceptance smoke test on the stable domain
