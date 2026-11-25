@@ -11,7 +11,7 @@ export default function SiteFooter() {
       </p>
       <p>{SITE.course}</p>
       <p className="muted">
-        Wydanie <code title={version.commit}>{version.commit.slice(0, 7)}</code> · {version.environment}
+        Wersja <code title={version.commit}>{version.commit.slice(0, 7)}</code> · {version.environment}
       </p>
       <LayoutStateDemo />
     </footer>
