@@ -31,17 +31,19 @@ try {
   const one = async <T extends pg.QueryResultRow>(sql: string, params: unknown[] = []) =>
     (await client.query<T>(sql, params)).rows[0];
 
-  const server = await one<{ version: string; max: string; reserved: string; db: string; who: string; tls: boolean | null }>(
+  const server = await one<{ version: string; max: string; reserved: string; db: string; who: string }>(
     `SELECT current_setting('server_version') AS version,
             current_setting('max_connections') AS max,
             current_setting('superuser_reserved_connections') AS reserved,
-            current_database() AS db, current_user AS who,
-            (SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()) AS tls`,
+            current_database() AS db, current_user AS who`,
   );
   const conns = await one<{ total: string; mine: string }>(
     `SELECT count(*) AS total, count(*) FILTER (WHERE datname = current_database()) AS mine FROM pg_stat_activity`,
   );
-  console.log(`Server: PostgreSQL ${server.version}, database ${server.db}, role ${server.who}, TLS ${server.tls ? "on" : "off"}`);
+  // TLS of OUR connection, read from the socket: behind a pooler pg_stat_ssl describes the pooler → server hop.
+  const socket = (client as unknown as { connection: { stream: { encrypted?: boolean; authorized?: boolean } } }).connection.stream;
+  const tls = socket.encrypted ? `on (certificate ${socket.authorized ? "verified" : "NOT verified"})` : "off";
+  console.log(`Server: PostgreSQL ${server.version}, database ${server.db}, role ${server.who}, client TLS ${tls}`);
   console.log(
     `Connections: ${conns.total} open (${conns.mine} to this database) of max_connections=${server.max} ` +
       `(${server.reserved} reserved for superusers)`,
@@ -53,8 +55,14 @@ try {
        FROM "_prisma_migrations" ORDER BY started_at`,
     )
     .then((result) => result.rows)
-    .catch(() => null);
-  if (migrations === null) {
+    .catch((error: { code?: string }) => {
+      if (error.code === "42501") return "denied" as const; // runtime role, by design (grant-app-role.sql)
+      if (error.code === "42P01") return null; // no such table: empty database
+      throw error;
+    });
+  if (migrations === "denied") {
+    console.log("Migrations: not readable by this role (expected for the runtime role).");
+  } else if (migrations === null) {
     console.log("Migrations: _prisma_migrations not found (empty database — run prisma migrate deploy).");
   } else {
     const broken = migrations.filter((migration) => !migration.finished);
