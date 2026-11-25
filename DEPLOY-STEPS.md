@@ -310,6 +310,7 @@ If you prefer not to use the workflow: run `npx --yes vercel@65.9.0 deploy --pro
 | Log `53300` / `timeout exceeded when trying to connect` | too many connections / sleeping DB | wait and retry; check Neon → Monitoring |
 | Release: `Error: Project not found` / `Not authorized` | wrong `VERCEL_*` secret or expired token | Part 4.3 + 5.2 |
 | Release stops at "migrations already applied" | migration pending or `MIGRATION_DATABASE_URL` wrong | Part 1.3 / 1.7 |
+| Vercel: `Deployment Blocked … commit author did not have contributing access` | the commit email is not linked to the GitHub account connected to the Vercel owner (Hobby, private repo) | use an email verified on that GitHub account (`git config user.email …`), connect GitHub in Vercel → Account → Authentication, make a new commit |
 
 Changing a variable in Vercel affects only **new** deployments → always rerun Release after a change.
 
