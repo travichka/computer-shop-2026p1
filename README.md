@@ -7,19 +7,19 @@ logowanie GitHub OAuth (Better Auth) i własny koszyk. **Lab 10 wdraża tę apli
 adresem HTTPS ze zdalnym PostgreSQL 17 (Neon)**, z kontrolowanymi migracjami, CI w GitHub Actions, publikacją
 konkretnego, sprawdzonego commitu i testem odbiorczym. Opis Lab 09 i Lab 08 — niżej, bez zmian.
 
-> Pola oznaczone ⟨…⟩ uzupełnia się po faktycznym wdrożeniu (adres, SHA, czasy odbioru). Wyniki lokalne
-> i CI w tej sekcji są rzeczywiste; wyników z Production nie wpisuję, zanim odbiór nie zostanie wykonany.
+> Wyniki z Production pochodzą z odbioru 2026-11-25. Pola ⟨…⟩ to wyłącznie czynności, które jeszcze nie zostały
+> wykonane (ręczny odbiór z dwoma kontami, linki GitHub) — nie wpisuję wyników na zapas.
 
 ## Lab 10 — podsumowanie oddania
 
 | Pozycja | Wartość |
 | --- | --- |
-| Stabilny adres Production | ⟨`https://computer-shop-2026p1.vercel.app`⟩ |
+| Stabilny adres Production | https://computer-shop-2026p1.vercel.app |
 | Gałąź Production | `main` (Vercel → Settings → Environments → Production branch) |
-| SHA odebranej wersji | ⟨SHA commitu `main` po scaleniu PR — ten sam, który pokazuje `/api/version` i stopka⟩ |
-| PR `lab10 → main` | ⟨link do PR⟩ (gałąź `lab10` zachowana) |
+| SHA odebranej wersji | `428d9bfd152bd49030d62ea19a65c6864337371c` (2026-11-25 14:17 CET, smoke 15/15). Po scaleniu PR z dokumentacją: ⟨SHA scalenia⟩; aktualny zawsze w `/api/version` |
+| PR `lab10 → main` | ⟨link do PR⟩ (gałąź `lab10` zachowana). Pierwsze scalenie `512832d` wykonano lokalnie, bez PR |
 | Region aplikacji / bazy | Vercel `fra1` (Frankfurt, `vercel.json`) / Neon `aws-eu-central-1` (Frankfurt) |
-| Wykonane rozszerzenia | CI/CD, test przeglądarkowy koszyka, backup i restore, pomiar wydajności; odrębne środowisko testowe — procedura przygotowana (zob. Rozszerzenia) |
+| Wykonane rozszerzenia | CI/CD, test przeglądarkowy koszyka, backup i restore, pomiar wydajności, odrębne środowisko testowe (logowanie GitHub na staging wymaga jeszcze osobnej OAuth App — zob. Rozszerzenia) |
 
 ## Lab 10 — wersje środowiska
 
@@ -32,7 +32,7 @@ konkretnego, sprawdzonego commitu i testem odbiorczym. Opis Lab 09 i Lab 08 — 
 | Better Auth | 1.7.7 |
 | `@vercel/functions` | 3.10.3 (`attachDatabasePool`) |
 | `@playwright/test` | 1.64.1 (Chromium) |
-| PostgreSQL | 17 — lokalnie 17.11 (`postgres:17`), CI `postgres:17`, Production: Neon PostgreSQL 17 ⟨wersja z `npm run db:check`⟩ |
+| PostgreSQL | 17 — lokalnie 17.11 (`postgres:17`), CI `postgres:17`, Production i staging: Neon PostgreSQL **18.7** (`npm run db:check`). Migracje przechodzą na 17 i 18; CI testuje na 17 — różnica wersji jest świadomym ograniczeniem |
 
 ## Lab 10 — plan publikacji
 
@@ -206,29 +206,29 @@ Nowe testy Lab 10: `pool-config`, `log`, `auth-options` (reguły adresu na Verce
 Wynik lokalny (2026-11-10, Node 24.22.1, PostgreSQL 17.11): `npm run lint` — 0 problemów; `npm run test` —
 **27 plików, 392 testy, wszystkie zaliczone**; `npm run build` — OK; `npm run test:e2e` — **4/4**;
 `npm run smoke -- http://localhost:3000 --expect-sha <HEAD>` — **15/15**. Workflowy sprawdzone `actionlint`
-1.7.7 — bez uwag. ⟨link do zielonego przebiegu CI na GitHub⟩
+1.7.7 — bez uwag. Przebiegi CI: zakładka *Checks* commitów wymienionych niżej (repozytorium prywatne).
 
 ## Lab 10 — test odbiorczy na Production
 
-Automatyczna część (`npm run smoke -- https://<domena> --expect-sha <SHA>`, uruchamiana też przez `release.yml`):
+Automatyczna część (`npm run smoke -- https://<domena> --expect-sha <SHA>`, uruchamiana też przez `release.yml`; 15/15 na Production, `/api/version`: `production`, `fra1`, Node 24.22.3):
 
-| Sprawdzenie | Wynik lokalny 2026-11-10 | Production ⟨data, godzina⟩ |
+| Sprawdzenie | Wynik lokalny 2026-11-10 | Production 2026-11-25 14:17 CET, `428d9bf` |
 | --- | --- | --- |
-| `/api/version`: SHA = odbierany commit, Node 24 | PASS | ⟨⟩ |
-| Strona główna bez szczegółów serwera | PASS | ⟨⟩ |
-| 100 produktów, 4 kategorie, unikalne id i kody (brak duplikatów), ceny w całych groszach | PASS | ⟨⟩ |
-| 8 kombinacji filtrów/sortowania = implementacja referencyjna Lab 06 (`queryProducts`) | PASS | ⟨⟩ |
-| Błędny filtr → 400 bez szczegółów | PASS | ⟨⟩ |
-| Szczegóły produktu, cena w złotych (`925,00 zł`) | PASS | ⟨⟩ |
-| `/product-list/999999`, `abc`, `0` → własny widok 404 | PASS | ⟨⟩ |
-| Obrazy produktów → 200 `image/*` | PASS | ⟨⟩ |
-| Nieznany URL → własny 404 z linkiem powrotu | PASS | ⟨⟩ |
-| `/basket`, `/order-history` bez sesji → zaproszenie do logowania, bez danych | PASS | ⟨⟩ |
-| Brak cookie / podrobione cookie → brak sesji | PASS | ⟨⟩ |
-| Start OAuth: `redirect_uri = <domena>/api/auth/callback/github`, tylko `read:user user:email` | PASS | ⟨⟩ |
-| `callbackURL` w obcej domenie → 403 | PASS | ⟨⟩ |
-| Żądanie z cookie z obcego `Origin` → 403 (CSRF) | PASS | ⟨⟩ |
-| Callback z podrobionym `state` → przekierowanie, bez cookie sesji | PASS | ⟨⟩ |
+| `/api/version`: SHA = odbierany commit, Node 24 | PASS | PASS |
+| Strona główna bez szczegółów serwera | PASS | PASS |
+| 100 produktów, 4 kategorie, unikalne id i kody (brak duplikatów), ceny w całych groszach | PASS | PASS |
+| 8 kombinacji filtrów/sortowania = implementacja referencyjna Lab 06 (`queryProducts`) | PASS | PASS |
+| Błędny filtr → 400 bez szczegółów | PASS | PASS |
+| Szczegóły produktu, cena w złotych (`925,00 zł`) | PASS | PASS |
+| `/product-list/999999`, `abc`, `0` → własny widok 404 | PASS | PASS |
+| Obrazy produktów → 200 `image/*` | PASS | PASS |
+| Nieznany URL → własny 404 z linkiem powrotu | PASS | PASS |
+| `/basket`, `/order-history` bez sesji → zaproszenie do logowania, bez danych | PASS | PASS |
+| Brak cookie / podrobione cookie → brak sesji | PASS | PASS |
+| Start OAuth: `redirect_uri = <domena>/api/auth/callback/github`, tylko `read:user user:email` | PASS | PASS |
+| `callbackURL` w obcej domenie → 403 | PASS | PASS |
+| Żądanie z cookie z obcego `Origin` → 403 (CSRF) | PASS | PASS |
+| Callback z podrobionym `state` → przekierowanie, bez cookie sesji | PASS | PASS |
 
 Część ręczna (Tabela 7.1) — dwa konta GitHub, dwa czyste profile przeglądarki; dla zapisu sprawdzam też bazę
 (Neon SQL Editor: `SELECT ci.id, ci."productId", ci.quantity FROM "CartItem" ci JOIN "Cart" c ON c.id = ci."cartId" JOIN "User" u ON u.id = c."userId" WHERE u.email = '<email>'`).
@@ -236,15 +236,15 @@ Tokenów, cookies ani danych drugiego konta tu nie zapisuję.
 
 | Scenariusz | Kroki | Oczekiwane | Wynik ⟨czas⟩ | Dowód |
 | --- | --- | --- | --- | --- |
-| Katalog i szczegóły | `/product-list`, filtry, sortowania, `/product-list/1`, `/product-list/999999` | 100 produktów, ceny w zł, 404 dla braku | ⟨⟩ | smoke + zrzut |
-| Logowanie i sesja | „Zaloguj przez GitHub” w czystym profilu | powrót na stabilną domenę, F5 nie wylogowuje | ⟨⟩ | pasek adresu, `/account` |
-| Wylogowanie | wyloguj, potem w DevTools przywróć stare cookie i spróbuj dodać produkt | „Zaloguj się, aby zmieniać koszyk.”, brak zmian w bazie | ⟨⟩ | zapytanie SQL |
-| Trwałość koszyka | dodaj, zmień ilość, usuń; wyloguj i zaloguj; po nowym wdrożeniu odśwież | koszyk zachowany | ⟨⟩ | SQL przed/po |
-| Izolacja A/B | B w DevTools podmienia `itemId` w formularzu na pozycję A | „Nie znaleziono takiej pozycji…”, pozycja A bez zmian | ⟨⟩ | SQL |
-| Walidacja | ilość 0/100 (po usunięciu `min`/`max`), więcej niż stan, akcja bez sesji | odmowa; suma liczona na serwerze | ⟨⟩ | komunikat + SQL |
-| Ponowna publikacja | drobna zmiana UI → PR → nowy SHA | katalog, logowanie, zapis działają; nadal 100 produktów | ⟨⟩ | smoke `--expect-sha` |
-| Nowy użytkownik | pierwsze logowanie drugiego konta | pusty koszyk, suma 0,00 zł, brak błędu | ⟨⟩ | zrzut |
-| Nieznany URL i historia | `/xyz`, `/order-history` | własny 404; historia własnych zamówień (rozszerzenie Lab 09) | ⟨⟩ | zrzut |
+| Katalog i szczegóły | `/product-list`, filtry, sortowania, `/product-list/1`, `/product-list/999999` | 100 produktów, ceny w zł, 404 dla braku | smoke PASS 14:17; przegląd ręczny ⟨do wykonania⟩ | smoke + zrzut |
+| Logowanie i sesja | „Zaloguj przez GitHub” w czystym profilu | powrót na stabilną domenę, F5 nie wylogowuje | częściowo: sesja z Production zapisana w bazie 13:54 CET; F5 i czysty profil ⟨do wykonania⟩ | pasek adresu, `/account` |
+| Wylogowanie | wyloguj, potem w DevTools przywróć stare cookie i spróbuj dodać produkt | „Zaloguj się, aby zmieniać koszyk.”, brak zmian w bazie | ⟨do wykonania⟩ (automatycznie: e2e) | zapytanie SQL |
+| Trwałość koszyka | dodaj, zmień ilość, usuń; wyloguj i zaloguj; po nowym wdrożeniu odśwież | koszyk zachowany | po wydaniach SHA₂ i SHA₃ `Cart` i `CartItem` identyczne (md5); pełny scenariusz ręczny ⟨do wykonania⟩ | SQL przed/po |
+| Izolacja A/B | B w DevTools podmienia `itemId` w formularzu na pozycję A | „Nie znaleziono takiej pozycji…”, pozycja A bez zmian | ⟨do wykonania⟩ (automatycznie: e2e 4/4) | SQL |
+| Walidacja | ilość 0/100 (po usunięciu `min`/`max`), więcej niż stan, akcja bez sesji | odmowa; suma liczona na serwerze | ⟨do wykonania⟩ (automatycznie: e2e, integracja) | komunikat + SQL |
+| Ponowna publikacja | drobna zmiana UI → PR → nowy SHA | katalog, logowanie, zapis działają; nadal 100 produktów | PASS 14:01 (`3673655`), smoke 15/15, 100 produktów; logowanie i zapis po wydaniu ⟨do potwierdzenia ręcznie⟩ | smoke `--expect-sha` |
+| Nowy użytkownik | pierwsze logowanie drugiego konta | pusty koszyk, suma 0,00 zł, brak błędu | ⟨do wykonania⟩ | zrzut |
+| Nieznany URL i historia | `/xyz`, `/order-history` | własny 404; historia własnych zamówień (rozszerzenie Lab 09) | smoke PASS 14:17; historia po zalogowaniu ⟨do wykonania⟩ | zrzut |
 
 Te same scenariusze koszyka są zautomatyzowane lokalnie w `e2e/cart.spec.ts` i w testach integracyjnych.
 
@@ -267,6 +267,20 @@ invocations, duration, Fluid CPU. Objawy wyczerpania połączeń: błędy `53300
 10 s) w logach funkcji. Kontrola: `SELECT usename, application_name, state, count(*) FROM pg_stat_activity
 GROUP BY 1,2,3` — połączenia aplikacji mają `application_name = computer-shop`. Uśpiona baza Neon daje
 jednorazowo wolne pierwsze żądanie (zimny start), nie błąd.
+
+**Rzeczywista naprawa 1 — wydanie zablokowane przez Vercel (2026-11-10 … 2026-11-25):**
+
+- *Objaw*: zielone testy i bramka migracji, ale wdrożenie `BLOCKED` („commit author did not have contributing
+  access”), `/api/version` → 404, domena nadal pokazywała stare wdrożenie.
+- *Przyczyna*: na Hobby autor commitu z prywatnego repozytorium musi być właścicielem projektu. E-mail w commitach
+  należał do innego konta GitHub niż połączone z Vercel (API Vercel: `TEAM_ACCESS_REQUIRED`).
+- *Zmiana*: `git config user.email` tego repozytorium ustawiony na adres powiązany z właściwym kontem; nowy commit
+  `35e0f8d`. Historii nie przepisywałam, repozytorium pozostało prywatne.
+- *Ponowny test*: wdrożenie `READY`, `PROMOTED`; smoke `--expect-sha 35e0f8d…` → 15/15 (13:51).
+
+**Rzeczywista naprawa 2 — „BETTER_AUTH_SECRET must have at least 32 characters” w buildzie:** wypisanie samych
+długości pokazało po 11 znaków dla wszystkich zmiennych — `vercel pull` dostaje atrapy zmiennych *Sensitive*.
+Zmiana: build na builderach Vercel (`vercel deploy --prod`); ponowny test: powyższe wydania.
 
 **Kontrolowany eksperyment (lokalnie) — błędny adres powrotu OAuth:**
 
@@ -298,17 +312,21 @@ jednorazowo wolne pierwsze żądanie (zimny start), nie błąd.
   (Neon: także odtworzenie gałęzi z punktu w czasie w ramach okna historii planu).
 - **Ćwiczenie odbiorcze** (bez migracji): drobna zmiana interfejsu (np. tekst w stopce) → wydanie SHA₂ → koszyk
   konta A sprawdzony → revert → wydanie SHA₃ (kod jak SHA₁) → stopka/`/api/version` pokazują SHA₃, koszyk A
-  bez zmian (SQL przed/po). ⟨SHA₁, SHA₂, SHA₃, czasy⟩
+  bez zmian (SQL przed/po). 
+  **Wykonano 2026-11-25:** SHA₁ `35e0f8d` (13:51) → SHA₂ `3673655` (14:01, etykieta stopki „Wydanie”) → SHA₃
+  `428d9bf` (14:17, `git revert`, znów „Wersja”). Wiersze i md5 tabel `Cart`/`CartItem` przed i po obu wydaniach są
+  identyczne, katalog nadal 100 produktów. Od scalenia `lab10` do SHA₃ nie było migracji, więc stary kod był
+  zgodny ze schematem.
 
 ## Lab 10 — rozszerzenia
 
 | Rozszerzenie | Stan | Efekt i test | Koszt utrzymania |
 | --- | --- | --- | --- |
-| **Automatyczne CI/CD** | zrobione (kod); dowód na GitHub ⟨link⟩ | `release.yml`: `deploy` ma `needs` na CI i bramkę migracji, Git-deploy Vercel wyłączony. Baza CI: kontener `postgres:17` w jobie (nigdy Production). Dowód zatrzymania: commit z celowo błędnym testem na `main` → job `checks` czerwony, `migrations-applied` i `deploy` *skipped*, na Vercel brak nowego wdrożenia, `/api/version` pokazuje stary SHA; revert → zielone wydanie. ⟨linki do obu przebiegów⟩ | ~6–8 min Actions na wydanie (darmowe minuty), utrzymanie tokenu Vercel i wersji CLI (`vercel@65.9.0`) |
+| **Automatyczne CI/CD** | zrobione; zatrzymanie wydania sprawdzone 2026-11-25 | `release.yml`: `deploy` ma `needs` na CI i bramkę migracji, Git-deploy Vercel wyłączony. Baza CI: kontener `postgres:17` w jobie (nigdy Production). Dowód zatrzymania: commit z celowo błędnym testem na `main` → job `checks` czerwony, `migrations-applied` i `deploy` *skipped*, na Vercel brak nowego wdrożenia, `/api/version` pokazuje stary SHA; revert → zielone wydanie. **Wynik:** commit `bacf15f` (test celowo błędny, push 14:01:53) — przez 9 min brak wdrożenia tego SHA w Vercel, Production nadal `3673655`; po `git revert` wydanie `428d9bf` opublikowane o 14:17. Czerwony przebieg: [checks `bacf15f`](https://github.com/travichka/computer-shop-2026p1/commit/bacf15f15951fc1b5741a4edc945695a215338ff/checks), zielony: [checks `428d9bf`](https://github.com/travichka/computer-shop-2026p1/commit/428d9bfd152bd49030d62ea19a65c6864337371c/checks) | ~6–8 min Actions na wydanie (darmowe minuty), utrzymanie tokenu Vercel i wersji CLI (`vercel@65.9.0`) |
 | **Test przeglądarkowy koszyka** | zrobione, 4/4 lokalnie, krok w CI | `e2e/cart.spec.ts` (Playwright, Chromium): (1) bez sesji `/basket` prosi o logowanie, „Dodaj do koszyka” → serwer odmawia, 0 wierszy; (2) dodanie ×2, zmiana ilości na 3, odmowa 100 (po usunięciu `min/max` w DOM — waliduje serwer), odmowa ponad stan, usunięcie → pusty koszyk 0,00 zł, każdy krok sprawdzony w bazie; (3) wylogowanie usuwa sesję, stare cookie nie działa, nowe logowanie przywraca koszyk; (4) B z podmienionym `itemId` A → „Nie znaleziono…”, pozycja A bez zmian. Sesja tworzona w procesie testu (dostęp do bazy testowej + sekret testowy, `testUtils`) — **aplikacja nie ma żadnej trasy ani flagi obejścia OAuth**. Baza `shop_e2e_test` odtwarzana przy każdym uruchomieniu | ~10 s lokalnie, ~1 min w CI (instalacja Chromium); selektory po rolach/etykietach — zmiana tekstów UI wymaga zmiany testu |
-| **Backup i restore** | zrobione lokalnie; dla Production ⟨wynik⟩ | `npm run db:backup-restore`: `pg_dump` 17 (kontener `postgres:17`, format custom, `--no-owner --no-privileges`) → nowa baza `*_test` → `pg_restore --exit-on-error` → porównanie wszystkich 11 tabel (liczba wierszy + md5 wszystkich wierszy), relacje bez sierot, CHECK/FK/kolacja jak w źródle. Odmawia przywracania do bazy bez sufiksu `_test` lub do źródła. Wynik lokalny: 0,4 s dump, 0,4 s restore, 11/11 tabel identycznych (Product 100, CartItem 3, Order 6…), 0 sierot, CHECK 14, FK 9, `COLLATE C` — „Restore verified”. Dla Production: `BACKUP_SOURCE_URL=<direct URL, tylko odczyt> RESTORE_DATABASE_URL=postgresql://…localhost…/shop_restore_test npm run db:backup-restore` — Production tylko czytany | Docker do `pg_dump`; plik w `backups/` (w `.gitignore`, zawiera dane osobowe — nie publikować) |
+| **Backup i restore** | zrobione na danych lokalnych; kopia Production niewykonana | `npm run db:backup-restore`: `pg_dump` 17 (kontener `postgres:17`, format custom, `--no-owner --no-privileges`) → nowa baza `*_test` → `pg_restore --exit-on-error` → porównanie wszystkich 11 tabel (liczba wierszy + md5 wszystkich wierszy), relacje bez sierot, CHECK/FK/kolacja jak w źródle. Odmawia przywracania do bazy bez sufiksu `_test` lub do źródła. Wynik lokalny: 0,4 s dump, 0,4 s restore, 11/11 tabel identycznych (Product 100, CartItem 3, Order 6…), 0 sierot, CHECK 14, FK 9, `COLLATE C` — „Restore verified”. Dla Production: `BACKUP_SOURCE_URL=<direct URL, tylko odczyt> RESTORE_DATABASE_URL=postgresql://…localhost…/shop_restore_test npm run db:backup-restore` — Production tylko czytany. Uwaga: Production ma PostgreSQL 18, a `pg_dump` 17 odmawia zrzutu nowszego serwera — wymaga obrazu `postgres:18` i docelowej bazy 18 | Docker do `pg_dump`; plik w `backups/` (w `.gitignore`, zawiera dane osobowe — nie publikować) |
 | **Pomiar wydajności** | zrobione lokalnie | `npm run perf -- <url>` — tabela niżej | brak (skrypt ręczny) |
-| **Odrębne środowisko testowe** | przygotowane, ⟨do wykonania⟩ | Na Hobby (bez custom environments) najprościej: **drugi projekt Vercel** `computer-shop-staging` z tego samego repozytorium (Git-deploy też wyłączony), **gałąź Neon `staging`** (osobny endpoint i role), **osobna OAuth App** z callbackiem na domenę staging, osobny `BETTER_AUTH_SECRET`. Kod to obsługuje bez zmian (konfiguracja tylko ze zmiennych; reguły adresu dla `VERCEL_ENV`). Dowód izolacji: zapis do koszyka na staging, `npm run db:check` na obu bazach — liczby `CartItem` Production bez zmian | drugi zestaw sekretów i OAuth App do rotacji; gałąź Neon zużywa limit planu |
+| **Odrębne środowisko testowe** | uruchomione 2026-11-25; OAuth App staging ⟨do utworzenia⟩ | https://computer-shop-2026p1-staging.vercel.app — **osobny projekt Vercel** `computer-shop-2026p1-staging`, **osobny projekt Neon** `shop-staging` (PostgreSQL 18, Frankfurt; własny właściciel i rola `shop_app`), osobny `BETTER_AUTH_SECRET` i zmienne; publikowane z czystego klonu (`vercel deploy --prod` projektu staging). Smoke 15/15 (`3673655`). Dowód izolacji — `e2e/staging/isolation.mts` (prawdziwa przeglądarka, wdrożona aplikacja): dodanie i zmiana ilości zmieniły `Cart`/`CartItem` staging (0 → 1), liczby i md5 tabel Production przed/w trakcie/po **identyczne**, cookie sesji staging na Production → `null`, po usunięciu 0 wierszy. `GITHUB_CLIENT_ID/SECRET` staging to na razie atrapy, więc logowania GitHub tam jeszcze nie ma | drugi zestaw sekretów i OAuth App do rotacji; drugi projekt Neon i Vercel w limitach planów Free/Hobby; staging publikuje operator |
 
 **Pomiar wydajności** — lokalnie, 2026-11-10: `next start` (build produkcyjny) + PostgreSQL 17.11 w Dockerze
 na tym samym MacBooku, Node 24.22.1, dane testowe (100 produktów), 300 żądań na rundę rozdzielonych po kolei
@@ -374,7 +392,7 @@ obejścia OAuth.
 
 - Neon Free usypia bazę po kilku minutach bezczynności — pierwsze żądanie po przerwie jest wolniejsze (zimny
   start bazy + funkcji); limity planu (storage, compute-hours) mogą zatrzymać bazę do końca miesiąca.
-- Preview wyłączone; środowisko testowe w chmurze opisane, ⟨nie / tak⟩ uruchomione.
+- Preview wyłączone; środowisko testowe działa jako osobny projekt; logowanie GitHub na staging po utworzeniu osobnej OAuth App.
 - Składanie zamówień (checkout) nie jest wdrożone — przycisk „Złóż zamówienie” jest nieaktywny; historia zamówień
   (rozszerzenie Lab 09) pokazuje zamówienia przypisane do konta (na Production nie ma fikcyjnych zamówień demo,
   bo seed bazy zdalnej ich nie dodaje).

@@ -61,7 +61,7 @@
 | Браузерний тест кошика | зроблено, 4/4 (локально і в CI), без обходу OAuth |
 | Backup і restore | зроблено локально: 11/11 таблиць ідентичні, 0 «сиріт», CHECK/FK/колація збережені |
 | Вимірювання продуктивності | зроблено локально: пул ніколи не перевищує `max` навіть при 50 паралельних запитах |
-| Окреме тестове середовище | лише описано (другий проєкт Vercel + гілка Neon `staging` + окремий OAuth App) |
+| Окреме тестове середовище | запущено: окремі проєкти Vercel і Neon, `ISOLATION VERIFIED`; бракує лише OAuth App для staging |
 
 ### Реальні проблеми, розв'язані під час розгортання (для розділу «diagnostyka»)
 1. **`BETTER_AUTH_SECRET must have at least 32 characters`** у білді на GitHub Actions.
@@ -69,12 +69,12 @@
    змінних — усі 5 мали по **11 символів** (заглушка). *Причина:* змінні Production у Vercel позначені
    **Sensitive**, CLI (`vercel pull`) отримує замість них заглушки. *Зміна:* Release тепер викликає
    `vercel deploy --prod`, білд іде на серверах Vercel, які бачать Sensitive-значення; SHA передається через
-   `--build-env APP_COMMIT_SHA`. *Повторний тест:* новий запуск Release ⟨результат⟩.
+   `--build-env APP_COMMIT_SHA`. *Повторний тест:* `35e0f8d`, `3673655`, `428d9bf` опубліковано, smoke 15/15.
 2. **`PRODUCTION_URL` без `https://`** — GitHub попереджав «not a valid http(s) URL»; виправлено змінну.
 3. **Default branch на GitHub = `lab06`** — змінено на `main` (і в Vercel Production branch = `main`).
 4. **Неправильний пароль ролі `shop_app`** — змінено через `ALTER ROLE shop_app WITH PASSWORD '…'`.
 5. **Справжній connection string потрапив у `.env.example`** — перехоплено до коміту, перенесено в
-   `.env.production.local` (ігнорується git).
+   `.env.vercel-production` (ігнорується git).
 6. Локальний експеримент: застосунок на іншому порту, ніж `BETTER_AUTH_URL` → smoke ловить неправильний
    `redirect_uri` (описано в README).
 
@@ -87,7 +87,7 @@
 - **Два акаунти GitHub** (свій + одногрупника) і **два профілі браузера** (або звичайне + інкогніто вікно).
 - Локально: Docker Desktop (для тестів, backup і perf), `npm ci` виконано.
 
-> ⚠️ На проєкторі **не відкривай** `.env`, `.env.production.local`, сторінку змінних у Vercel, секрети GitHub
+> ⚠️ На проєкторі **не відкривай** `.env`, `.env.vercel-production`, сторінку змінних у Vercel, секрети GitHub
 > і cookies у DevTools. Логи Release безпечні — секретів там немає.
 
 ---
@@ -212,8 +212,12 @@ npm run perf -- http://localhost:3000 --requests 300 --concurrency 1,10,50
 (запити чекають у черзі пулу) — це захищає ліміт бази, коли інстанцій багато. Продакшн навантаженням не тестую.
 
 ### Окреме тестове середовище
-Не розгорнуте; план: другий проєкт Vercel, гілка Neon `staging`, окремий OAuth App і секрети; доказ —
-запис на staging не змінює `CartItem` у продакшн-базі.
+https://computer-shop-2026p1-staging.vercel.app — окремий проєкт Vercel, окремий проєкт Neon `shop-staging`, свої секрети.
+```bash
+STAGING_URL=https://computer-shop-2026p1-staging.vercel.app node --env-file=.env.vercel-staging --import tsx e2e/staging/isolation.mts
+```
+Останній рядок має бути `ISOLATION VERIFIED`. **Сказати:** запис на staging змінює лише його базу; cookie staging на
+продакшні не діє. Вхід через GitHub на staging запрацює після створення третього OAuth App.
 
 ---
 
@@ -290,5 +294,5 @@ npm run perf -- http://localhost:3000 --requests 300 --concurrency 1,10,50
 - [ ] Backup продакшну перевірено (`Restore verified.`)
 - [ ] У README немає `⟨…⟩`, версія PostgreSQL правильна (18.6 або 17)
 - [ ] Відкриті: два профілі браузера, Neon SQL Editor, GitHub Actions, Vercel Deployments, редактор коду
-- [ ] `.env`, `.env.production.local`, змінні Vercel і секрети GitHub **закриті**; на екрані немає паролів і токенів
+- [ ] `.env`, `.env.vercel-production`, змінні Vercel і секрети GitHub **закриті**; на екрані немає паролів і токенів
 - [ ] Docker запущено (для e2e / backup / perf на занятті)
